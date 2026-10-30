@@ -127,7 +127,7 @@ function itemBlock(item) {
             },
             {
               text: [
-                { text: `Created ${formatCreated(item.createdAt)}`, color: "#64748b", fontSize: 9 },
+                { text: `Created ${formatCreated(item.createdAt)}${item.createdByName ? ` by ${item.createdByName}` : ""}`, color: "#64748b", fontSize: 9 },
                 { text: "    ", fontSize: 9 },
                 { text: status?.label || item.status, color: statusColor.color, bold: true, fontSize: 9 },
               ],

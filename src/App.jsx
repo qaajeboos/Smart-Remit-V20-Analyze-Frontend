@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  changePin,
+  clearSession,
   createFeedback,
   createModule,
   fetchFeedback,
+  fetchMe,
   fetchModules,
+  login,
+  logout,
+  readSession,
   updateStatus,
+  writeSession,
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
 import { CATEGORIES, STATUSES, categoryById } from "./labels";
@@ -34,7 +41,7 @@ function matchesQuery(item, query) {
   return haystack.includes(query);
 }
 
-export default function App() {
+function Dashboard({ user, onSignOut }) {
   const [modules, setModules] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +62,10 @@ export default function App() {
 
   useEffect(() => {
     load()
-      .catch((loadError) => setError(loadError.message))
+      .catch((loadError) => {
+        if (loadError.status === 401) onSignOut();
+        else setError(loadError.message);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -231,6 +241,11 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <div className="account">
+          <strong>{user.fullName}</strong>
+          <span>{user.username}</span>
+          <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
+        </div>
         <button type="button" className="side-action" onClick={() => setDialogOpen(true)}>
           Register
         </button>
@@ -310,9 +325,14 @@ export default function App() {
         {error && <div className="banner" role="alert">{error}</div>}
         {loading && <div className="loading">Loading feedback…</div>}
 
-        {!loading && groups.map((group) => (
+        {!loading && groups.map((group) => {
+          const moduleRecord = modules.find((module) => module.id === group.moduleId);
+          return (
           <section className="section-card" key={group.moduleId}>
-            <h3>{group.moduleIcon || "📌"} {group.moduleName}</h3>
+            <div className="section-heading">
+              <h3>{group.moduleIcon || "📌"} {group.moduleName}</h3>
+              {moduleRecord?.createdByName && <p className="module-creator">Created by {moduleRecord.createdByName}</p>}
+            </div>
             <div className="items">
               {group.items.map((item) => {
                 const categoryMeta = categoryById(item.category);
@@ -321,7 +341,10 @@ export default function App() {
                     <div className="item-top">
                       <span className="item-meta">
                         <span className="index">{String(item.itemNumber).padStart(2, "0")}</span>
-                        <span className="created">Created {formatCreated(item.createdAt)}</span>
+                        <span className="created">
+                          Created {formatCreated(item.createdAt)}
+                          {item.createdByName ? ` by ${item.createdByName}` : ""}
+                        </span>
                       </span>
                       <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
                     </div>
@@ -348,7 +371,8 @@ export default function App() {
               })}
             </div>
           </section>
-        ))}
+          );
+        })}
 
         {!loading && visible.length === 0 && (
           <div className="empty">No feedback matches this view. Clear a filter or register a new item.</div>
@@ -562,6 +586,178 @@ function RegisterDialog({ modules, initialModuleId, onClose, onCreated }) {
           </form>
         )}
       </div>
+    </div>
+  );
+}
+
+function digitsOnly(value) {
+  return value.replace(/\D/g, "");
+}
+
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const saved = readSession();
+    if (!saved) {
+      setReady(true);
+      return;
+    }
+    writeSession(saved);
+    fetchMe()
+      .then((user) => setSession({ token: saved.token, user }))
+      .catch(() => clearSession())
+      .finally(() => setReady(true));
+  }, []);
+
+  async function signOut() {
+    try {
+      await logout();
+    } catch {
+      // The session is already gone.
+    }
+    clearSession();
+    setSession(null);
+  }
+
+  if (!ready) {
+    return <div className="auth-screen"><div className="loading">Loading…</div></div>;
+  }
+  if (!session) {
+    return <LoginPage onSuccess={setSession} />;
+  }
+  if (session.user.mustChangePin) {
+    return (
+      <PinResetPage
+        user={session.user}
+        onUpdated={(user) => setSession({ ...session, user })}
+        onSignOut={signOut}
+      />
+    );
+  }
+  return <Dashboard user={session.user} onSignOut={signOut} />;
+}
+
+function LoginPage({ onSuccess }) {
+  const [username, setUsername] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const result = await login(username.trim(), pin);
+      writeSession(result);
+      onSuccess(result);
+    } catch (loginError) {
+      setError(loginError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <h1>Smart V2 Review</h1>
+        <p>Sign in with your username and PIN.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="username">Username</label>
+          <input
+            id="username"
+            autoComplete="username"
+            required
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="pin">PIN</label>
+          <input
+            id="pin"
+            className="pin-input"
+            type="password"
+            inputMode="numeric"
+            autoComplete="current-password"
+            required
+            value={pin}
+            onChange={(event) => setPin(digitsOnly(event.target.value))}
+          />
+        </div>
+        <button type="submit" className="primary" disabled={saving || pin.length === 0}>
+          {saving ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function PinResetPage({ user, onUpdated, onSignOut }) {
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await changePin(newPin, confirmPin);
+      const saved = readSession();
+      writeSession({ ...saved, user: updated });
+      onUpdated(updated);
+    } catch (pinError) {
+      setError(pinError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <h1>Choose a new PIN</h1>
+        <p>{user.fullName}, the default PIN can only be used once. Enter a new PIN to continue.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="new-pin">New PIN</label>
+          <input
+            id="new-pin"
+            className="pin-input"
+            type="password"
+            inputMode="numeric"
+            autoComplete="new-password"
+            required
+            value={newPin}
+            onChange={(event) => setNewPin(digitsOnly(event.target.value))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="confirm-pin">Confirm new PIN</label>
+          <input
+            id="confirm-pin"
+            className="pin-input"
+            type="password"
+            inputMode="numeric"
+            autoComplete="new-password"
+            required
+            value={confirmPin}
+            onChange={(event) => setConfirmPin(digitsOnly(event.target.value))}
+          />
+        </div>
+        <button type="submit" className="primary" disabled={saving || newPin.length === 0 || confirmPin.length === 0}>
+          {saving ? "Saving…" : "Save PIN"}
+        </button>
+        <button type="button" className="ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSignOut}>
+          Sign out
+        </button>
+      </form>
     </div>
   );
 }

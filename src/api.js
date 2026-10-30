@@ -1,8 +1,39 @@
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://smart-remit-v20-analyze-backend-production.up.railway.app"
+).replace(/\/$/, "");
+
+const STORAGE_KEY = "smart-v2-auth";
+let authToken = null;
+
+export function readSession() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.token || !parsed?.user) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeSession(session) {
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  authToken = session.token;
+}
+
+export function clearSession() {
+  sessionStorage.removeItem(STORAGE_KEY);
+  authToken = null;
+}
+
 async function request(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(options.headers || {}),
     },
   });
@@ -15,11 +46,35 @@ async function request(path, options = {}) {
     } catch {
       // The server did not return JSON.
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
   return response.json();
+}
+
+export function login(username, pin) {
+  return request("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, pin }),
+  });
+}
+
+export function fetchMe() {
+  return request("/api/auth/me");
+}
+
+export function changePin(newPin, confirmPin) {
+  return request("/api/auth/pin", {
+    method: "POST",
+    body: JSON.stringify({ newPin, confirmPin }),
+  });
+}
+
+export function logout() {
+  return request("/api/auth/logout", { method: "POST" });
 }
 
 export function fetchModules() {
