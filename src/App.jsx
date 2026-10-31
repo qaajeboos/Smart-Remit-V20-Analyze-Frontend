@@ -1151,6 +1151,7 @@ function EditDialog({ item, modules, onClose, onSaved }) {
           </select>
         </div>
         <ScreenshotEditor
+          feedbackId={item.id}
           rows={rows}
           setRows={setRows}
           existing={item.screenshots || []}
@@ -1222,7 +1223,7 @@ function PinConfirmDialog({ title, message, onClose, onConfirm }) {
   );
 }
 
-function ScreenshotEditor({ rows, setRows, existing = [], removeIds = [], setRemoveIds }) {
+function ScreenshotEditor({ feedbackId, rows, setRows, existing = [], removeIds = [], setRemoveIds }) {
   const kept = existing.filter((shot) => !removeIds.includes(shot.id)).length;
   const atLimit = kept + rows.length >= 6;
 
@@ -1232,19 +1233,16 @@ function ScreenshotEditor({ rows, setRows, existing = [], removeIds = [], setRem
       <p className="field-hint">Optional. Add one image, or several to compare the legacy system and the new system. Name each image so it is easy to choose later. Each image can be up to 4 MB.</p>
       {existing.length > 0 && (
         <div className="shot-existing">
+          <p className="field-hint">Saved screenshots. Remove deletes the image when you save.</p>
           {existing.map((shot) => (
-            <label key={shot.id} className="check-line">
-              <input
-                type="checkbox"
-                checked={removeIds.includes(shot.id)}
-                onChange={(event) => {
-                  setRemoveIds(event.target.checked
-                    ? [...removeIds, shot.id]
-                    : removeIds.filter((id) => id !== shot.id));
-                }}
-              />
-              Remove “{shot.label}”
-            </label>
+            <SavedScreenshot
+              key={shot.id}
+              feedbackId={feedbackId}
+              shot={shot}
+              marked={removeIds.includes(shot.id)}
+              onRemove={() => setRemoveIds([...removeIds, shot.id])}
+              onUndo={() => setRemoveIds(removeIds.filter((id) => id !== shot.id))}
+            />
           ))}
         </div>
       )}
@@ -1286,6 +1284,37 @@ function ScreenshotEditor({ rows, setRows, existing = [], removeIds = [], setRem
       >
         Add another screenshot
       </button>
+    </div>
+  );
+}
+
+function SavedScreenshot({ feedbackId, shot, marked, onRemove, onUndo }) {
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    let objectUrl = "";
+    let active = true;
+    fetchScreenshot(feedbackId, shot.id)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) setUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [feedbackId, shot.id]);
+
+  return (
+    <div className={`saved-shot${marked ? " removed" : ""}`}>
+      {url ? <img src={url} alt="" /> : <span className="saved-shot-placeholder" />}
+      <span>{marked ? `${shot.label} will be removed` : shot.label}</span>
+      {marked ? (
+        <button type="button" className="ghost" onClick={onUndo}>Undo</button>
+      ) : (
+        <button type="button" className="danger" onClick={onRemove}>Remove</button>
+      )}
     </div>
   );
 }
