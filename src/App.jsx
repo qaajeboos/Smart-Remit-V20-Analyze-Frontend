@@ -4,6 +4,8 @@ import {
   clearSession,
   createFeedback,
   createModule,
+  deleteFeedback,
+  deleteModule,
   fetchFeedback,
   fetchMe,
   fetchModules,
@@ -13,11 +15,12 @@ import {
   requestOtp,
   resetPinWithOtp,
   verifyOtp,
+  updateFeedback,
   updateStatus,
   writeSession,
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
-import { CATEGORIES, STATUSES, categoryById } from "./labels";
+import { CATEGORIES, ORIGINS, STATUSES, categoryById, originById } from "./labels";
 import "./App.css";
 
 const emptyModuleForm = { name: "", description: "", icon: "" };
@@ -27,6 +30,7 @@ const emptyFeedbackForm = {
   details: "",
   category: "LEGACY_PARITY",
   status: "IN_PROGRESS",
+  origin: "REVIEW",
 };
 
 function formatCreated(value) {
@@ -44,18 +48,27 @@ function matchesQuery(item, query) {
   return haystack.includes(query);
 }
 
+function itemOrigin(item) {
+  return item.origin || "REVIEW";
+}
+
 function Dashboard({ user, onSignOut }) {
   const [modules, setModules] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [moduleId, setModuleId] = useState("all");
+  const [origin, setOrigin] = useState("REVIEW");
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const canDelete = user.username === "bulxan";
+  const collection = originById(origin);
 
   async function load() {
     const [nextModules, nextItems] = await Promise.all([fetchModules(), fetchFeedback()]);
@@ -82,13 +95,13 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const categoryOk = category === "all" || item.category === category;
       const statusOk = status === "all" || item.status === status;
-      if (categoryOk && statusOk && matchesQuery(item, normalizedQuery)) {
-        counts.all += 1;
-        counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
-      }
+      const listed = categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+      if (!listed) return;
+      if (itemOrigin(item) === "REVIEW") counts.all += 1;
+      if (itemOrigin(item) === origin) counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
     });
     return counts;
-  }, [items, modules, category, status, normalizedQuery]);
+  }, [items, modules, category, status, normalizedQuery, origin]);
 
   const categoryCounts = useMemo(() => {
     const counts = { all: 0 };
@@ -98,13 +111,13 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const statusOk = status === "all" || item.status === status;
-      if (moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
+      if (itemOrigin(item) === origin && moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
         counts.all += 1;
         counts[item.category] += 1;
       }
     });
     return counts;
-  }, [items, moduleId, status, normalizedQuery]);
+  }, [items, moduleId, origin, status, normalizedQuery]);
 
   const statusCounts = useMemo(() => {
     const counts = {};
@@ -114,18 +127,31 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const categoryOk = category === "all" || item.category === category;
-      if (moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
+      if (itemOrigin(item) === origin && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
         counts[item.status] += 1;
       }
     });
     return counts;
-  }, [items, moduleId, category, normalizedQuery]);
+  }, [items, moduleId, origin, category, normalizedQuery]);
+
+  const collectionCounts = useMemo(() => {
+    const counts = { OPERATIONS: 0, PROPOSAL: 0 };
+    items.forEach((item) => {
+      const categoryOk = category === "all" || item.category === category;
+      const statusOk = status === "all" || item.status === status;
+      const key = itemOrigin(item);
+      if ((key === "OPERATIONS" || key === "PROPOSAL") && categoryOk && statusOk && matchesQuery(item, normalizedQuery)) {
+        counts[key] += 1;
+      }
+    });
+    return counts;
+  }, [items, category, status, normalizedQuery]);
 
   const visible = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = category === "all" || item.category === category;
     const statusOk = status === "all" || item.status === status;
-    return moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+    return itemOrigin(item) === origin && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
   });
 
   const groups = [];
@@ -145,7 +171,7 @@ function Dashboard({ user, onSignOut }) {
 
   const selectedModule = modules.find((module) => module.id === moduleId);
   const summary = moduleId === "all" && category === "all" && status === "all" && !normalizedQuery
-    ? "Showing all feedback"
+    ? (origin === "REVIEW" ? "Showing all feedback" : `Showing ${collection.label}`)
     : `Showing ${category === "all" ? "all feedback" : categoryById(category).label}${
         status === "all" ? "" : `, ${STATUSES.find((entry) => entry.id === status).label.toLowerCase()}`
       } in ${selectedModule ? selectedModule.name : "all modules"}`;
@@ -169,7 +195,7 @@ function Dashboard({ user, onSignOut }) {
   const printable = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = category === "all" || item.category === category;
-    return item.status === "IN_PROGRESS" && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
+    return item.status === "IN_PROGRESS" && itemOrigin(item) === origin && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
   });
   const printableGroups = [];
   printable.forEach((item) => {
@@ -193,7 +219,7 @@ function Dashboard({ user, onSignOut }) {
       await exportFeedbackPdf({
         groups: printableGroups,
         moduleLabel,
-        typeLabel,
+        typeLabel: origin === "REVIEW" ? typeLabel : `${collection.label} · ${typeLabel}`,
         search: query.trim(),
       });
     } catch (exportError) {
@@ -210,10 +236,24 @@ function Dashboard({ user, onSignOut }) {
       return;
     }
     setItems((current) => [...current, created.item]);
+    setOrigin(itemOrigin(created.item));
     setModuleId(created.item.moduleId);
     setCategory(created.item.category);
     setStatus(created.item.status);
     setDialogOpen(false);
+  }
+
+  async function confirmDelete(pin) {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "module") {
+      await deleteModule(pendingDelete.module.id, pin);
+      setModules((current) => current.filter((module) => module.id !== pendingDelete.module.id));
+      setItems((current) => current.filter((item) => item.moduleId !== pendingDelete.module.id));
+      if (moduleId === pendingDelete.module.id) setModuleId("all");
+      return;
+    }
+    await deleteFeedback(pendingDelete.item.id, pin);
+    setItems((current) => current.filter((item) => item.id !== pendingDelete.item.id));
   }
 
   return (
@@ -225,22 +265,47 @@ function Dashboard({ user, onSignOut }) {
         </div>
         <p className="menu-label">Modules</p>
         <nav className="menu" aria-label="Feedback modules">
-          <button type="button" className={moduleId === "all" ? "active" : ""} onClick={() => setModuleId("all")}>
+          <button
+            type="button"
+            className={origin === "REVIEW" && moduleId === "all" ? "active" : ""}
+            onClick={() => { setOrigin("REVIEW"); setModuleId("all"); }}
+          >
             <span className="menu-name"><span>All modules</span></span>
             <span className="count">{moduleCounts.all || 0}</span>
           </button>
           {modules.map((module) => (
+            <div className={`menu-row ${moduleId === module.id ? "active" : ""}`} key={module.id}>
+              <button type="button" className="menu-main" onClick={() => setModuleId(module.id)}>
+                <span className="menu-name">
+                  <span>{module.icon || "📌"}</span>
+                  <span>{module.name}</span>
+                </span>
+                <span className="count">{moduleCounts[module.id] || 0}</span>
+              </button>
+              {canDelete && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Delete ${module.name}`}
+                  onClick={() => setPendingDelete({ kind: "module", module })}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          ))}
+        </nav>
+        <p className="menu-label">Records</p>
+        <nav className="menu" aria-label="Other records">
+          {ORIGINS.filter((entry) => entry.id !== "REVIEW").map((entry) => (
             <button
-              key={module.id}
+              key={entry.id}
               type="button"
-              className={moduleId === module.id ? "active" : ""}
-              onClick={() => setModuleId(module.id)}
+              className={origin === entry.id ? "active" : ""}
+              onClick={() => { setOrigin(entry.id); setModuleId("all"); }}
             >
-              <span className="menu-name">
-                <span>{module.icon || "📌"}</span>
-                <span>{module.name}</span>
-              </span>
-              <span className="count">{moduleCounts[module.id] || 0}</span>
+              <span className="menu-name"><span>{entry.label}</span></span>
+              <span className="count">{collectionCounts[entry.id] || 0}</span>
             </button>
           ))}
         </nav>
@@ -257,14 +322,11 @@ function Dashboard({ user, onSignOut }) {
       <main className="main">
         <header className="main-header">
           <div>
-            <h2>Smart V2 System Review</h2>
-            <p>
-              Functional and UI/UX feedback compared with the legacy system.
-              Choose a module, filter by type, and track whether each issue is in progress, an expected feature, or completed.
-            </p>
+            <h2>{collection.title}</h2>
+            <p>{collection.description}</p>
           </div>
           <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
-            Register feedback
+            {collection.register}
           </button>
         </header>
 
@@ -313,9 +375,11 @@ function Dashboard({ user, onSignOut }) {
 
         <div className="result-bar">
           <span>
-            {summary.includes("Showing all feedback") && summary === "Showing all feedback"
+            {summary === "Showing all feedback"
               ? <>Showing <strong>all feedback</strong></>
-              : summary}
+              : summary === `Showing ${collection.label}`
+                ? <>Showing <strong>{collection.label}</strong></>
+                : summary}
           </span>
           <span className="result-actions">
             <span>{visible.length} {visible.length === 1 ? "item" : "items"}</span>
@@ -368,6 +432,14 @@ function Dashboard({ user, onSignOut }) {
                           </button>
                         ))}
                       </div>
+                      <div className="item-tools">
+                        <button type="button" className="ghost" onClick={() => setEditing(item)}>Edit</button>
+                        {canDelete && (
+                          <button type="button" className="danger" onClick={() => setPendingDelete({ kind: "feedback", item })}>
+                            Delete
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </article>
                 );
@@ -388,20 +460,43 @@ function Dashboard({ user, onSignOut }) {
         <RegisterDialog
           modules={modules}
           initialModuleId={moduleId === "all" ? modules[0]?.id ?? "" : moduleId}
+          initialOrigin={origin}
           onClose={() => setDialogOpen(false)}
           onCreated={handleCreated}
+        />
+      )}
+      {editing && (
+        <EditDialog
+          item={editing}
+          modules={modules}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => {
+            setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+            setEditing(null);
+          }}
+        />
+      )}
+      {pendingDelete && (
+        <PinConfirmDialog
+          title={pendingDelete.kind === "module" ? `Delete ${pendingDelete.module.name}` : `Delete ${pendingDelete.item.title}`}
+          message={pendingDelete.kind === "module"
+            ? "Enter your PIN to delete this module. Feedback in the module is deleted with it."
+            : "Enter your PIN to delete this feedback."}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
         />
       )}
     </div>
   );
 }
 
-function RegisterDialog({ modules, initialModuleId, onClose, onCreated }) {
+function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCreated }) {
   const [tab, setTab] = useState(modules.length ? "feedback" : "module");
   const [moduleForm, setModuleForm] = useState(emptyModuleForm);
   const [feedbackForm, setFeedbackForm] = useState({
     ...emptyFeedbackForm,
     moduleId: initialModuleId === "" ? "" : String(initialModuleId),
+    origin: initialOrigin || "REVIEW",
   });
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
@@ -452,6 +547,7 @@ function RegisterDialog({ modules, initialModuleId, onClose, onCreated }) {
         details: feedbackForm.details.trim(),
         category: feedbackForm.category,
         status: feedbackForm.status,
+        origin: feedbackForm.origin,
       });
       onCreated({ kind: "feedback", item });
     } catch (submitError) {
@@ -530,6 +626,18 @@ function RegisterDialog({ modules, initialModuleId, onClose, onCreated }) {
                 <option value="">Select a module</option>
                 {modules.map((module) => (
                   <option key={module.id} value={module.id}>{module.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="feedback-record">Record as</label>
+              <select
+                id="feedback-record"
+                value={feedbackForm.origin}
+                onChange={(event) => setFeedbackForm({ ...feedbackForm, origin: event.target.value })}
+              >
+                {ORIGINS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>{entry.label}</option>
                 ))}
               </select>
             </div>
@@ -901,6 +1009,149 @@ function PinResetPage({ user, onUpdated, onSignOut }) {
         <button type="button" className="ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSignOut}>
           Sign out
         </button>
+      </form>
+    </div>
+  );
+}
+
+function EditDialog({ item, modules, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    moduleId: String(item.moduleId),
+    origin: itemOrigin(item),
+    category: item.category,
+    title: item.title,
+    details: item.details,
+    status: item.status,
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await updateFeedback(item.id, {
+        moduleId: Number(form.moduleId),
+        origin: form.origin,
+        category: form.category,
+        title: form.title.trim(),
+        details: form.details.trim(),
+        status: form.status,
+      });
+      onSaved(updated);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title" onSubmit={submit}>
+        <h3 id="edit-title">Edit feedback</h3>
+        <p>Update the record. The original author stays as the person who created it.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="edit-record">Record as</label>
+          <select id="edit-record" value={form.origin} onChange={(event) => setForm({ ...form, origin: event.target.value })}>
+            {ORIGINS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="edit-module">Module</label>
+          <select id="edit-module" required value={form.moduleId} onChange={(event) => setForm({ ...form, moduleId: event.target.value })}>
+            {modules.map((module) => <option key={module.id} value={module.id}>{module.name}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="edit-type">Feedback type</label>
+          <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+            {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="edit-title">Title</label>
+          <input id="edit-title" required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+        </div>
+        <div className="field">
+          <label htmlFor="edit-details">Details</label>
+          <textarea id="edit-details" required value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} />
+        </div>
+        <div className="field">
+          <label htmlFor="edit-status">Status</label>
+          <select id="edit-status" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+            {STATUSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function PinConfirmDialog({ title, message, onClose, onConfirm }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onConfirm(pin);
+      onClose();
+    } catch (confirmError) {
+      setError(confirmError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="pin-title" onSubmit={submit}>
+        <h3 id="pin-title">{title}</h3>
+        <p>{message}</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="confirm-delete-pin">PIN</label>
+          <input
+            id="confirm-delete-pin"
+            className="pin-input"
+            type="password"
+            inputMode="numeric"
+            autoComplete="current-password"
+            required
+            value={pin}
+            onChange={(event) => setPin(digitsOnly(event.target.value))}
+          />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="danger" disabled={saving || pin.length === 0}>
+            {saving ? "Deleting…" : "Delete"}
+          </button>
+        </div>
       </form>
     </div>
   );

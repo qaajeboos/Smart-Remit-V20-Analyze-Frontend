@@ -54,6 +54,28 @@
   cursor: pointer;
 }
 
+.menu-row { display: flex; align-items: stretch; gap: 4px; }
+.menu-row .menu-main { flex: 1; width: auto; }
+.menu button.icon-button { width: auto; justify-content: center; }
+.menu-row.active .menu-main {
+  background: var(--accent-light);
+  border-color: #dbeafe;
+  color: var(--accent);
+  font-weight: 600;
+}
+.icon-button, .danger {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #dc2626;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.icon-button { padding: 0 10px; font-size: 0.78rem; }
+.icon-button:hover, .danger:hover { background: #fef2f2; }
+.danger { border-color: #fecaca; background: #fff; padding: 8px 12px; }
+.item-tools { display: flex; gap: 8px; }
+
 .menu button:hover { background: var(--bg); }
 .menu button.active {
   background: var(--accent-light);

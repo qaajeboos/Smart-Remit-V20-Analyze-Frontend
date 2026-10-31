@@ -120,6 +120,27 @@ export function createFeedback(payload) {
   });
 }
 
+export function updateFeedback(id, payload) {
+  return request(`/api/feedback/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteFeedback(id, pin) {
+  return request(`/api/feedback/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export function deleteModule(id, pin) {
+  return request(`/api/modules/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ pin }),
+  });
+}
+
 export function updateStatus(id, status) {
   return request(`/api/feedback/${id}/status`, {
     method: "PATCH",

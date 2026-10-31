@@ -1,3 +1,27 @@
+export const ORIGINS = [
+  {
+    id: "REVIEW",
+    label: "System review",
+    title: "Smart V2 System Review",
+    description: "Functional and UI/UX feedback compared with the legacy system. Choose a module, filter by type, and track whether each issue is in progress, an expected feature, or completed.",
+    register: "Register feedback",
+  },
+  {
+    id: "OPERATIONS",
+    label: "Comments From Operations",
+    title: "Comments From Operations",
+    description: "Comments and feedback recorded from the operations department about the new system.",
+    register: "Register comment",
+  },
+  {
+    id: "PROPOSAL",
+    label: "New proposals",
+    title: "New proposals",
+    description: "Feature proposals from people who use the new system.",
+    register: "Register proposal",
+  },
+];
+
 export const CATEGORIES = [
   { id: "LEGACY_PARITY", label: "Legacy Parity", dot: "legacy" },
   { id: "AUTOMATION", label: "Automation", dot: "automation" },
@@ -16,6 +40,10 @@ export const STATUSES = [
 
 export function categoryById(id) {
   return CATEGORIES.find((category) => category.id === id);
+}
+
+export function originById(id) {
+  return ORIGINS.find((origin) => origin.id === id) || ORIGINS[0];
 }
 
 export function statusById(id) {
