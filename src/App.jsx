@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   changePin,
   clearSession,
@@ -434,19 +434,13 @@ function Dashboard({ user, onSignOut }) {
                           </button>
                         ))}
                       </div>
-                      <div className="item-tools">
-                        {(item.screenshots?.length || 0) > 0 && (
-                          <button type="button" className="ghost" onClick={() => setViewing(item)}>
-                            {item.screenshots.length > 1 ? "View screenshots" : "View screenshot"}
-                          </button>
-                        )}
-                        <button type="button" className="ghost" onClick={() => setEditing(item)}>Edit</button>
-                        {canDelete && (
-                          <button type="button" className="danger" onClick={() => setPendingDelete({ kind: "feedback", item })}>
-                            Delete
-                          </button>
-                        )}
-                      </div>
+                      <ItemActions
+                        item={item}
+                        canDelete={canDelete}
+                        onView={() => setViewing(item)}
+                        onEdit={() => setEditing(item)}
+                        onDelete={() => setPendingDelete({ kind: "feedback", item })}
+                      />
                     </div>
                   </article>
                 );
@@ -493,6 +487,60 @@ function Dashboard({ user, onSignOut }) {
           onClose={() => setPendingDelete(null)}
           onConfirm={confirmDelete}
         />
+      )}
+    </div>
+  );
+}
+
+function ItemActions({ item, canDelete, onView, onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const hasScreenshots = (item.screenshots?.length || 0) > 0;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointer(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function choose(action) {
+    setOpen(false);
+    action();
+  }
+
+  return (
+    <div className={`item-menu${open ? " open" : ""}`} ref={rootRef}>
+      <button
+        type="button"
+        className="item-menu-button"
+        aria-label={`Actions for ${item.title}`}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="dots" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="item-menu-list" role="menu">
+          {hasScreenshots && (
+            <button type="button" role="menuitem" onClick={() => choose(onView)}>
+              {item.screenshots.length > 1 ? "View screenshots" : "View screenshot"}
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>
+          {canDelete && (
+            <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>Delete</button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1374,7 +1422,10 @@ function ScreenshotDialog({ item, screenshot, onClose, onBack }) {
     let objectUrl = "";
     let active = true;
     function onKey(event) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        if (onBack) onBack();
+        else onClose();
+      }
     }
     window.addEventListener("keydown", onKey);
     fetchScreenshot(item.id, screenshot.id)
@@ -1390,20 +1441,20 @@ function ScreenshotDialog({ item, screenshot, onClose, onBack }) {
       window.removeEventListener("keydown", onKey);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [item.id, screenshot.id, onClose]);
+  }, [item.id, screenshot.id, onClose, onBack]);
 
   return (
     <div className="overlay">
       <div className="dialog screenshot-view" role="dialog" aria-modal="true" aria-labelledby="screenshot-title">
+        <div className={`shot-toolbar${onBack ? " split" : ""}`}>
+          {onBack && <button type="button" className="ghost" onClick={onBack}>Back</button>}
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
         <h3 id="screenshot-title">{screenshot.label}</h3>
         <p>{item.title}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         {!error && !url && <p className="field-hint">Opening screenshot…</p>}
         {url && <img src={url} alt={screenshot.label} />}
-        <div className={`dialog-actions${onBack ? " split" : ""}`}>
-          {onBack && <button type="button" className="ghost" onClick={onBack}>All screenshots</button>}
-          <button type="button" className="ghost" onClick={onClose}>Close</button>
-        </div>
       </div>
     </div>
   );
