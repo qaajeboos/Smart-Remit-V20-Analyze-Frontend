@@ -765,6 +765,8 @@ function digitsOnly(value) {
   return value.replace(/\D/g, "");
 }
 
+const SCREENSHOT_NAMES = ["New System Screenshot", "Legacy System Screenshot"];
+
 function newShotRow() {
   return { key: `${Date.now()}-${Math.random()}`, label: "", file: null };
 }
@@ -785,8 +787,10 @@ function readFileAsBase64(file) {
 async function readScreenshots(rows) {
   const uploads = [];
   for (const row of rows) {
-    const label = row.label.trim();
-    if (!row.file && !label) continue;
+    if (!row.file && !row.label) continue;
+    if (!SCREENSHOT_NAMES.includes(row.label)) {
+      throw new Error("Choose New System Screenshot or Legacy System Screenshot.");
+    }
     if (!row.file) {
       throw new Error("Choose an image for each screenshot.");
     }
@@ -797,7 +801,7 @@ async function readScreenshots(rows) {
       throw new Error("Choose an image that is 4 MB or smaller.");
     }
     uploads.push({
-      label,
+      label: row.label,
       fileName: row.file.name,
       contentType: row.file.type,
       data: await readFileAsBase64(row.file),
@@ -1278,7 +1282,7 @@ function ScreenshotEditor({ feedbackId, rows, setRows, existing = [], removeIds 
   return (
     <div className="field">
       <label>Screenshots</label>
-      <p className="field-hint">Optional. Add one image, or several to compare the legacy system and the new system. Name each image so it is easy to choose later. Each image can be up to 4 MB.</p>
+      <p className="field-hint">Optional. Add one image, or several to compare the legacy system and the new system. Each image can be up to 4 MB.</p>
       {existing.length > 0 && (
         <div className="shot-existing">
           <p className="field-hint">Saved screenshots. Remove deletes the image when you save.</p>
@@ -1304,14 +1308,19 @@ function ScreenshotEditor({ feedbackId, rows, setRows, existing = [], removeIds 
               </button>
             )}
           </div>
-          <label htmlFor={`shot-label-${row.key}`}>Name</label>
-          <input
-            id={`shot-label-${row.key}`}
-            value={row.label}
-            maxLength={120}
-            placeholder="Legacy system or New system"
-            onChange={(event) => setRows(rows.map((entry) => entry.key === row.key ? { ...entry, label: event.target.value } : entry))}
-          />
+          <div className="shot-kind" role="radiogroup" aria-label={`Screenshot ${kept + index + 1}`}>
+            {SCREENSHOT_NAMES.map((name) => (
+              <label key={name} className="check-line">
+                <input
+                  type="radio"
+                  name={`shot-kind-${row.key}`}
+                  checked={row.label === name}
+                  onChange={() => setRows(rows.map((entry) => entry.key === row.key ? { ...entry, label: name } : entry))}
+                />
+                {name}
+              </label>
+            ))}
+          </div>
           <label htmlFor={`shot-file-${row.key}`}>Image</label>
           <input
             id={`shot-file-${row.key}`}

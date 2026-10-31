@@ -182,6 +182,8 @@
   margin-bottom: 10px;
 }
 .shot-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.shot-kind { display: flex; flex-direction: column; gap: 6px; }
+.shot-kind .check-line { margin: 0; }
 .shot-row-head strong { font-size: 0.9rem; }
 .add-shot { align-self: flex-start; }
 .shot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
