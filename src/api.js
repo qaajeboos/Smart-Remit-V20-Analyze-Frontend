@@ -62,6 +62,27 @@ export function login(username, pin) {
   });
 }
 
+export function requestOtp(username) {
+  return request("/api/auth/forgot-pin", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+}
+
+export function verifyOtp(username, otp) {
+  return request("/api/auth/forgot-pin/verify", {
+    method: "POST",
+    body: JSON.stringify({ username, otp }),
+  });
+}
+
+export function resetPinWithOtp(resetToken, newPin, confirmPin) {
+  return request("/api/auth/forgot-pin/reset", {
+    method: "POST",
+    body: JSON.stringify({ resetToken, newPin, confirmPin }),
+  });
+}
+
 export function fetchMe() {
   return request("/api/auth/me");
 }

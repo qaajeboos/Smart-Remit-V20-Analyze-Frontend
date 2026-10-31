@@ -10,6 +10,9 @@ import {
   login,
   logout,
   readSession,
+  requestOtp,
+  resetPinWithOtp,
+  verifyOtp,
   updateStatus,
   writeSession,
 } from "./api";
@@ -640,9 +643,15 @@ export default function App() {
 }
 
 function LoginPage({ onSuccess }) {
+  const [step, setStep] = useState("login");
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
+  const [otp, setOtp] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(event) {
@@ -660,39 +669,174 @@ function LoginPage({ onSuccess }) {
     }
   }
 
+  async function startForgot() {
+    if (!username.trim()) {
+      setError("Enter your username first.");
+      setNotice("");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await requestOtp(username.trim());
+      setOtp("");
+      setNotice("");
+      setStep("otp");
+    } catch (forgotError) {
+      setError(forgotError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitOtp(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const result = await verifyOtp(username.trim(), otp.trim());
+      setResetToken(result.resetToken);
+      setNewPin("");
+      setConfirmPin("");
+      setNotice("");
+      setStep("reset");
+    } catch (otpError) {
+      setError(otpError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitReset(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await resetPinWithOtp(resetToken, newPin, confirmPin);
+      setPin("");
+      setOtp("");
+      setResetToken("");
+      setNewPin("");
+      setConfirmPin("");
+      setStep("login");
+      setNotice("Your PIN was updated. Sign in with the new PIN.");
+    } catch (resetError) {
+      setError(resetError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function backToLogin() {
+    setStep("login");
+    setError("");
+    setNotice("");
+    setOtp("");
+    setResetToken("");
+  }
+
   return (
     <div className="auth-screen">
-      <form className="auth-card" onSubmit={submit}>
-        <h1>Smart V2 Review</h1>
-        <p>Sign in with your username and PIN.</p>
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="field">
-          <label htmlFor="username">Username</label>
-          <input
-            id="username"
-            autoComplete="username"
-            required
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="pin">PIN</label>
-          <input
-            id="pin"
-            className="pin-input"
-            type="password"
-            inputMode="numeric"
-            autoComplete="current-password"
-            required
-            value={pin}
-            onChange={(event) => setPin(digitsOnly(event.target.value))}
-          />
-        </div>
-        <button type="submit" className="primary" disabled={saving || pin.length === 0}>
-          {saving ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      {step === "login" && (
+        <form className="auth-card" onSubmit={submit}>
+          <h1>Smart V2 Review</h1>
+          <p>Sign in with your username and PIN.</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          {notice && <p className="form-note">{notice}</p>}
+          <div className="field">
+            <label htmlFor="username">Username</label>
+            <input
+              id="username"
+              autoComplete="username"
+              required
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="pin">PIN</label>
+            <input
+              id="pin"
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              autoComplete="current-password"
+              required
+              value={pin}
+              onChange={(event) => setPin(digitsOnly(event.target.value))}
+            />
+          </div>
+          <button type="submit" className="primary" disabled={saving || pin.length === 0}>
+            {saving ? "Signing in…" : "Sign in"}
+          </button>
+          <button type="button" className="text-link" onClick={startForgot} disabled={saving}>
+            Forgot PIN
+          </button>
+        </form>
+      )}
+
+      {step === "otp" && (
+        <form className="auth-card" onSubmit={submitOtp}>
+          <h1>Enter the OTP</h1>
+          <p>An OTP was created for {username.trim()}. Enter it below.</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="field">
+            <label htmlFor="otp">OTP</label>
+            <input
+              id="otp"
+              className="pin-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              value={otp}
+              onChange={(event) => setOtp(digitsOnly(event.target.value))}
+            />
+          </div>
+          <button type="submit" className="primary" disabled={saving || otp.length === 0}>
+            {saving ? "Checking…" : "Continue"}
+          </button>
+          <button type="button" className="text-link" onClick={backToLogin}>Back to sign in</button>
+        </form>
+      )}
+
+      {step === "reset" && (
+        <form className="auth-card" onSubmit={submitReset}>
+          <h1>Reset PIN</h1>
+          <p>Choose a new PIN for {username.trim()}.</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="field">
+            <label htmlFor="forgot-new-pin">New PIN</label>
+            <input
+              id="forgot-new-pin"
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              required
+              value={newPin}
+              onChange={(event) => setNewPin(digitsOnly(event.target.value))}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="forgot-confirm-pin">Confirm new PIN</label>
+            <input
+              id="forgot-confirm-pin"
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
+              required
+              value={confirmPin}
+              onChange={(event) => setConfirmPin(digitsOnly(event.target.value))}
+            />
+          </div>
+          <button type="submit" className="primary" disabled={saving || newPin.length === 0 || confirmPin.length === 0}>
+            {saving ? "Saving…" : "Save PIN"}
+          </button>
+          <button type="button" className="text-link" onClick={backToLogin}>Back to sign in</button>
+        </form>
+      )}
     </div>
   );
 }
