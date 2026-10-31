@@ -120,6 +120,25 @@ export function createFeedback(payload) {
   });
 }
 
+export async function fetchScreenshot(id) {
+  const response = await fetch(`${API_BASE}/api/feedback/${id}/screenshot`, {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  });
+  if (!response.ok) {
+    let message = "The screenshot could not be opened.";
+    try {
+      const body = await response.json();
+      if (body.message) message = body.message;
+    } catch {
+      // The image response is not JSON.
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return response.blob();
+}
+
 export function updateFeedback(id, payload) {
   return request(`/api/feedback/${id}`, {
     method: "PUT",

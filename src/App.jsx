@@ -9,6 +9,7 @@ import {
   fetchFeedback,
   fetchMe,
   fetchModules,
+  fetchScreenshot,
   login,
   logout,
   readSession,
@@ -64,6 +65,7 @@ function Dashboard({ user, onSignOut }) {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -433,6 +435,9 @@ function Dashboard({ user, onSignOut }) {
                         ))}
                       </div>
                       <div className="item-tools">
+                        {item.hasScreenshot && (
+                          <button type="button" className="ghost" onClick={() => setViewing(item)}>View screenshot</button>
+                        )}
                         <button type="button" className="ghost" onClick={() => setEditing(item)}>Edit</button>
                         {canDelete && (
                           <button type="button" className="danger" onClick={() => setPendingDelete({ kind: "feedback", item })}>
@@ -476,6 +481,7 @@ function Dashboard({ user, onSignOut }) {
           }}
         />
       )}
+      {viewing && <ScreenshotDialog item={viewing} onClose={() => setViewing(null)} />}
       {pendingDelete && (
         <PinConfirmDialog
           title={pendingDelete.kind === "module" ? `Delete ${pendingDelete.module.name}` : `Delete ${pendingDelete.item.title}`}
@@ -501,6 +507,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [screenshotFile, setScreenshotFile] = useState(null);
 
   useEffect(() => {
     function onKey(event) {
@@ -541,6 +548,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
     setSaving(true);
     setFormError("");
     try {
+      const screenshot = await readScreenshot(screenshotFile);
       const item = await createFeedback({
         moduleId: Number(feedbackForm.moduleId),
         title: feedbackForm.title.trim(),
@@ -548,6 +556,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
         category: feedbackForm.category,
         status: feedbackForm.status,
         origin: feedbackForm.origin,
+        ...screenshot,
       });
       onCreated({ kind: "feedback", item });
     } catch (submitError) {
@@ -688,6 +697,16 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
               </select>
               <p className="field-hint">New feedback starts as In progress. Choose Expected feature only when developers confirm the behavior is intended, so it is not a bug.</p>
             </div>
+            <div className="field">
+              <label htmlFor="feedback-screenshot">Screenshot</label>
+              <input
+                id="feedback-screenshot"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(event) => setScreenshotFile(event.target.files?.[0] || null)}
+              />
+              <p className="field-hint">Optional. Images up to 4 MB.</p>
+            </div>
             <div className="dialog-actions">
               <button type="button" className="ghost" onClick={onClose}>Cancel</button>
               <button type="submit" className="primary" disabled={saving || modules.length === 0}>
@@ -703,6 +722,30 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
 
 function digitsOnly(value) {
   return value.replace(/\D/g, "");
+}
+
+function readScreenshot(file) {
+  if (!file) return Promise.resolve({});
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("Attach an image file."));
+  }
+  if (file.size > 4 * 1024 * 1024) {
+    return Promise.reject(new Error("Choose an image that is 4 MB or smaller."));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const splitAt = result.indexOf(",");
+      resolve({
+        screenshotName: file.name,
+        screenshotContentType: file.type,
+        screenshotData: splitAt >= 0 ? result.slice(splitAt + 1) : result,
+      });
+    };
+    reader.onerror = () => reject(new Error("The screenshot could not be read."));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function App() {
@@ -1025,6 +1068,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [removeScreenshot, setRemoveScreenshot] = useState(false);
 
   useEffect(() => {
     function onKey(event) {
@@ -1039,6 +1084,7 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     setSaving(true);
     setError("");
     try {
+      const screenshot = await readScreenshot(screenshotFile);
       const updated = await updateFeedback(item.id, {
         moduleId: Number(form.moduleId),
         origin: form.origin,
@@ -1046,6 +1092,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
         title: form.title.trim(),
         details: form.details.trim(),
         status: form.status,
+        removeScreenshot,
+        ...screenshot,
       });
       onSaved(updated);
     } catch (saveError) {
@@ -1092,6 +1140,22 @@ function EditDialog({ item, modules, onClose, onSaved }) {
             {STATUSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
           </select>
         </div>
+        <div className="field">
+          <label htmlFor="edit-screenshot">Screenshot</label>
+          <input
+            id="edit-screenshot"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={(event) => setScreenshotFile(event.target.files?.[0] || null)}
+          />
+          <p className="field-hint">{item.hasScreenshot ? "Choose a new image to replace the current screenshot." : "Optional. Images up to 4 MB."}</p>
+        </div>
+        {item.hasScreenshot && (
+          <label className="check-line">
+            <input type="checkbox" checked={removeScreenshot} onChange={(event) => setRemoveScreenshot(event.target.checked)} />
+            Remove the current screenshot
+          </label>
+        )}
         <div className="dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
@@ -1153,6 +1217,48 @@ function PinConfirmDialog({ title, message, onClose, onConfirm }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ScreenshotDialog({ item, onClose }) {
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let objectUrl = "";
+    let active = true;
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    fetchScreenshot(item.id)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) setUrl(objectUrl);
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError.message);
+      });
+    return () => {
+      active = false;
+      window.removeEventListener("keydown", onKey);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [item.id, onClose]);
+
+  return (
+    <div className="overlay">
+      <div className="dialog screenshot-view" role="dialog" aria-modal="true" aria-labelledby="screenshot-title">
+        <h3 id="screenshot-title">{item.title}</h3>
+        <p>Screenshot attached to this feedback.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {!error && !url && <p className="field-hint">Opening screenshot…</p>}
+        {url && <img src={url} alt={`Screenshot for ${item.title}`} />}
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }

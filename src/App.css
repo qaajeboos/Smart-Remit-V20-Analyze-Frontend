@@ -74,7 +74,10 @@
 .icon-button { padding: 0 10px; font-size: 0.78rem; }
 .icon-button:hover, .danger:hover { background: #fef2f2; }
 .danger { border-color: #fecaca; background: #fff; padding: 8px 12px; }
-.item-tools { display: flex; gap: 8px; }
+.item-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.check-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 0.9rem; }
+.screenshot-view { max-width: min(960px, 100%); }
+.screenshot-view img { display: block; width: 100%; max-height: 72vh; object-fit: contain; background: #f8fafc; border-radius: 12px; }
 
 .menu button:hover { background: var(--bg); }
 .menu button.active {

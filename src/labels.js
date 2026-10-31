@@ -13,13 +13,6 @@ export const ORIGINS = [
     description: "Comments and feedback recorded from the operations department about the new system.",
     register: "Register comment",
   },
-  {
-    id: "PROPOSAL",
-    label: "New proposals",
-    title: "New proposals",
-    description: "Feature proposals from people who use the new system.",
-    register: "Register proposal",
-  },
 ];
 
 export const CATEGORIES = [
