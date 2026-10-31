@@ -120,8 +120,8 @@ export function createFeedback(payload) {
   });
 }
 
-export async function fetchScreenshot(id) {
-  const response = await fetch(`${API_BASE}/api/feedback/${id}/screenshot`, {
+export async function fetchScreenshot(feedbackId, screenshotId) {
+  const response = await fetch(`${API_BASE}/api/feedback/${feedbackId}/screenshots/${screenshotId}`, {
     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
   });
   if (!response.ok) {

@@ -435,8 +435,10 @@ function Dashboard({ user, onSignOut }) {
                         ))}
                       </div>
                       <div className="item-tools">
-                        {item.hasScreenshot && (
-                          <button type="button" className="ghost" onClick={() => setViewing(item)}>View screenshot</button>
+                        {(item.screenshots?.length || 0) > 0 && (
+                          <button type="button" className="ghost" onClick={() => setViewing(item)}>
+                            {item.screenshots.length > 1 ? "View screenshots" : "View screenshot"}
+                          </button>
                         )}
                         <button type="button" className="ghost" onClick={() => setEditing(item)}>Edit</button>
                         {canDelete && (
@@ -481,7 +483,7 @@ function Dashboard({ user, onSignOut }) {
           }}
         />
       )}
-      {viewing && <ScreenshotDialog item={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <ScreenshotBrowser item={viewing} onClose={() => setViewing(null)} />}
       {pendingDelete && (
         <PinConfirmDialog
           title={pendingDelete.kind === "module" ? `Delete ${pendingDelete.module.name}` : `Delete ${pendingDelete.item.title}`}
@@ -507,7 +509,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
-  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [rows, setRows] = useState(() => [newShotRow()]);
 
   useEffect(() => {
     function onKey(event) {
@@ -548,7 +550,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
     setSaving(true);
     setFormError("");
     try {
-      const screenshot = await readScreenshot(screenshotFile);
+      const screenshots = await readScreenshots(rows);
       const item = await createFeedback({
         moduleId: Number(feedbackForm.moduleId),
         title: feedbackForm.title.trim(),
@@ -556,7 +558,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
         category: feedbackForm.category,
         status: feedbackForm.status,
         origin: feedbackForm.origin,
-        ...screenshot,
+        screenshots,
       });
       onCreated({ kind: "feedback", item });
     } catch (submitError) {
@@ -697,16 +699,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
               </select>
               <p className="field-hint">New feedback starts as In progress. Choose Expected feature only when developers confirm the behavior is intended, so it is not a bug.</p>
             </div>
-            <div className="field">
-              <label htmlFor="feedback-screenshot">Screenshot</label>
-              <input
-                id="feedback-screenshot"
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                onChange={(event) => setScreenshotFile(event.target.files?.[0] || null)}
-              />
-              <p className="field-hint">Optional. Images up to 4 MB.</p>
-            </div>
+            <ScreenshotEditor rows={rows} setRows={setRows} />
             <div className="dialog-actions">
               <button type="button" className="ghost" onClick={onClose}>Cancel</button>
               <button type="submit" className="primary" disabled={saving || modules.length === 0}>
@@ -724,28 +717,45 @@ function digitsOnly(value) {
   return value.replace(/\D/g, "");
 }
 
-function readScreenshot(file) {
-  if (!file) return Promise.resolve({});
-  if (!file.type.startsWith("image/")) {
-    return Promise.reject(new Error("Attach an image file."));
-  }
-  if (file.size > 4 * 1024 * 1024) {
-    return Promise.reject(new Error("Choose an image that is 4 MB or smaller."));
-  }
+function newShotRow() {
+  return { key: `${Date.now()}-${Math.random()}`, label: "", file: null };
+}
+
+function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || "");
       const splitAt = result.indexOf(",");
-      resolve({
-        screenshotName: file.name,
-        screenshotContentType: file.type,
-        screenshotData: splitAt >= 0 ? result.slice(splitAt + 1) : result,
-      });
+      resolve(splitAt >= 0 ? result.slice(splitAt + 1) : result);
     };
     reader.onerror = () => reject(new Error("The screenshot could not be read."));
     reader.readAsDataURL(file);
   });
+}
+
+async function readScreenshots(rows) {
+  const uploads = [];
+  for (const row of rows) {
+    const label = row.label.trim();
+    if (!row.file && !label) continue;
+    if (!row.file) {
+      throw new Error("Choose an image for each screenshot.");
+    }
+    if (!row.file.type.startsWith("image/")) {
+      throw new Error("Attach an image file.");
+    }
+    if (row.file.size > 4 * 1024 * 1024) {
+      throw new Error("Choose an image that is 4 MB or smaller.");
+    }
+    uploads.push({
+      label,
+      fileName: row.file.name,
+      contentType: row.file.type,
+      data: await readFileAsBase64(row.file),
+    });
+  }
+  return uploads;
 }
 
 export default function App() {
@@ -1068,8 +1078,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [screenshotFile, setScreenshotFile] = useState(null);
-  const [removeScreenshot, setRemoveScreenshot] = useState(false);
+  const [rows, setRows] = useState(() => ((item.screenshots?.length || 0) > 0 ? [] : [newShotRow()]));
+  const [removeIds, setRemoveIds] = useState([]);
 
   useEffect(() => {
     function onKey(event) {
@@ -1084,7 +1094,7 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     setSaving(true);
     setError("");
     try {
-      const screenshot = await readScreenshot(screenshotFile);
+      const screenshots = await readScreenshots(rows);
       const updated = await updateFeedback(item.id, {
         moduleId: Number(form.moduleId),
         origin: form.origin,
@@ -1092,8 +1102,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
         title: form.title.trim(),
         details: form.details.trim(),
         status: form.status,
-        removeScreenshot,
-        ...screenshot,
+        screenshots,
+        removeScreenshotIds: removeIds,
       });
       onSaved(updated);
     } catch (saveError) {
@@ -1140,22 +1150,13 @@ function EditDialog({ item, modules, onClose, onSaved }) {
             {STATUSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
           </select>
         </div>
-        <div className="field">
-          <label htmlFor="edit-screenshot">Screenshot</label>
-          <input
-            id="edit-screenshot"
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            onChange={(event) => setScreenshotFile(event.target.files?.[0] || null)}
-          />
-          <p className="field-hint">{item.hasScreenshot ? "Choose a new image to replace the current screenshot." : "Optional. Images up to 4 MB."}</p>
-        </div>
-        {item.hasScreenshot && (
-          <label className="check-line">
-            <input type="checkbox" checked={removeScreenshot} onChange={(event) => setRemoveScreenshot(event.target.checked)} />
-            Remove the current screenshot
-          </label>
-        )}
+        <ScreenshotEditor
+          rows={rows}
+          setRows={setRows}
+          existing={item.screenshots || []}
+          removeIds={removeIds}
+          setRemoveIds={setRemoveIds}
+        />
         <div className="dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
@@ -1221,7 +1222,122 @@ function PinConfirmDialog({ title, message, onClose, onConfirm }) {
   );
 }
 
-function ScreenshotDialog({ item, onClose }) {
+function ScreenshotEditor({ rows, setRows, existing = [], removeIds = [], setRemoveIds }) {
+  const kept = existing.filter((shot) => !removeIds.includes(shot.id)).length;
+  const atLimit = kept + rows.length >= 6;
+
+  return (
+    <div className="field">
+      <label>Screenshots</label>
+      <p className="field-hint">Optional. Add one image, or several to compare the legacy system and the new system. Name each image so it is easy to choose later. Each image can be up to 4 MB.</p>
+      {existing.length > 0 && (
+        <div className="shot-existing">
+          {existing.map((shot) => (
+            <label key={shot.id} className="check-line">
+              <input
+                type="checkbox"
+                checked={removeIds.includes(shot.id)}
+                onChange={(event) => {
+                  setRemoveIds(event.target.checked
+                    ? [...removeIds, shot.id]
+                    : removeIds.filter((id) => id !== shot.id));
+                }}
+              />
+              Remove “{shot.label}”
+            </label>
+          ))}
+        </div>
+      )}
+      {rows.map((row, index) => (
+        <div className="shot-row" key={row.key}>
+          <div className="shot-row-head">
+            <strong>Screenshot {kept + index + 1}</strong>
+            {(rows.length > 1 || existing.length > 0) && (
+              <button type="button" className="ghost" onClick={() => setRows(rows.filter((entry) => entry.key !== row.key))}>
+                Remove
+              </button>
+            )}
+          </div>
+          <label htmlFor={`shot-label-${row.key}`}>Name</label>
+          <input
+            id={`shot-label-${row.key}`}
+            value={row.label}
+            maxLength={120}
+            placeholder="Legacy system or New system"
+            onChange={(event) => setRows(rows.map((entry) => entry.key === row.key ? { ...entry, label: event.target.value } : entry))}
+          />
+          <label htmlFor={`shot-file-${row.key}`}>Image</label>
+          <input
+            id={`shot-file-${row.key}`}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={(event) => {
+              const file = event.target.files?.[0] || null;
+              setRows(rows.map((entry) => entry.key === row.key ? { ...entry, file } : entry));
+            }}
+          />
+        </div>
+      ))}
+      <button
+        type="button"
+        className="ghost add-shot"
+        disabled={atLimit}
+        onClick={() => setRows([...rows, newShotRow()])}
+      >
+        Add another screenshot
+      </button>
+    </div>
+  );
+}
+
+function ScreenshotBrowser({ item, onClose }) {
+  const shots = item.screenshots || [];
+  const [selected, setSelected] = useState(shots.length === 1 ? shots[0] : null);
+
+  useEffect(() => {
+    if (selected) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, onClose]);
+
+  if (selected) {
+    return (
+      <ScreenshotDialog
+        item={item}
+        screenshot={selected}
+        onClose={onClose}
+        onBack={shots.length > 1 ? () => setSelected(null) : null}
+      />
+    );
+  }
+
+  return (
+    <div className="overlay">
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="shot-list-title">
+        <h3 id="shot-list-title">{item.title}</h3>
+        <p>Choose a screenshot to view.</p>
+        <ul className="shot-list">
+          {shots.map((shot, index) => (
+            <li key={shot.id}>
+              <button type="button" onClick={() => setSelected(shot)}>
+                <span className="shot-index">{String(index + 1).padStart(2, "0")}</span>
+                <span>{shot.label}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScreenshotDialog({ item, screenshot, onClose, onBack }) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
 
@@ -1232,7 +1348,7 @@ function ScreenshotDialog({ item, onClose }) {
       if (event.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
-    fetchScreenshot(item.id)
+    fetchScreenshot(item.id, screenshot.id)
       .then((blob) => {
         objectUrl = URL.createObjectURL(blob);
         if (active) setUrl(objectUrl);
@@ -1245,17 +1361,18 @@ function ScreenshotDialog({ item, onClose }) {
       window.removeEventListener("keydown", onKey);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [item.id, onClose]);
+  }, [item.id, screenshot.id, onClose]);
 
   return (
     <div className="overlay">
       <div className="dialog screenshot-view" role="dialog" aria-modal="true" aria-labelledby="screenshot-title">
-        <h3 id="screenshot-title">{item.title}</h3>
-        <p>Screenshot attached to this feedback.</p>
+        <h3 id="screenshot-title">{screenshot.label}</h3>
+        <p>{item.title}</p>
         {error && <p className="form-error" role="alert">{error}</p>}
         {!error && !url && <p className="field-hint">Opening screenshot…</p>}
-        {url && <img src={url} alt={`Screenshot for ${item.title}`} />}
-        <div className="dialog-actions">
+        {url && <img src={url} alt={screenshot.label} />}
+        <div className={`dialog-actions${onBack ? " split" : ""}`}>
+          {onBack && <button type="button" className="ghost" onClick={onBack}>All screenshots</button>}
           <button type="button" className="ghost" onClick={onClose}>Close</button>
         </div>
       </div>

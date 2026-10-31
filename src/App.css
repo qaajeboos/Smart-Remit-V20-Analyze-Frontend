@@ -89,6 +89,35 @@
   background: #0f172a;
   border-radius: 12px;
 }
+.shot-existing { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.shot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.shot-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.shot-row-head strong { font-size: 0.9rem; }
+.add-shot { align-self: flex-start; }
+.shot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.shot-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text);
+}
+.shot-list button:hover { background: var(--bg); }
+.shot-index { font-weight: 700; color: var(--accent); min-width: 1.6rem; }
 
 .menu button:hover { background: var(--bg); }
 .menu button.active {
@@ -376,6 +405,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top:
 .form-error { color: #dc2626; font-size: 0.9rem; margin: 0 0 12px; }
 .form-note { color: #047857; font-size: 0.9rem; margin: 0 0 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.dialog-actions.split { justify-content: space-between; }
 
 .auth-screen {
   min-height: 100vh;
