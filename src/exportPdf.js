@@ -11,6 +11,7 @@ const CATEGORY_COLORS = {
   bug: { color: "#9f1239", fill: "#ffe4e6" },
   logic: { color: "#115e59", fill: "#ccfbf1" },
   business: { color: "#9a3412", fill: "#ffedd5" },
+  feature: { color: "#075985", fill: "#e0f2fe" },
   inquiry: { color: "#475569", fill: "#f1f5f9" },
 };
 

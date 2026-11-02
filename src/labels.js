@@ -22,7 +22,7 @@ export const CATEGORIES = [
   { id: "BUG_UX", label: "Bug / UX", dot: "bug" },
   { id: "CORE_LOGIC", label: "Core Logic", dot: "logic" },
   { id: "BUSINESS_RULE", label: "Business Rule", dot: "business" },
-  { id: "INQUIRY", label: "Inquiry", dot: "inquiry" },
+  { id: "NEW_FEATURE", label: "New Feature", dot: "feature" },
 ];
 
 export const STATUSES = [
@@ -32,7 +32,8 @@ export const STATUSES = [
 ];
 
 export function categoryById(id) {
-  return CATEGORIES.find((category) => category.id === id);
+  return CATEGORIES.find((category) => category.id === id)
+    || (id === "INQUIRY" ? { id: "INQUIRY", label: "Inquiry", dot: "inquiry" } : undefined);
 }
 
 export function originById(id) {

@@ -403,6 +403,16 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
                 </button>
                 {open && (
                   <div className="menu-children">
+                    <button
+                      type="button"
+                      className={origin === department.id && moduleId === "all" && !manageView ? "active" : ""}
+                      onClick={() => { setManageView(null); setOrigin(department.id); setModuleId("all"); }}
+                    >
+                      <span className="menu-name"><span>All</span></span>
+                      <span className="count">
+                        {Object.values(moduleCounts[department.id] || {}).reduce((sum, value) => sum + value, 0)}
+                      </span>
+                    </button>
                     {modules.length === 0 && <p className="menu-empty">No modules yet</p>}
                     {modules.map((module) => (
                       <button
@@ -1674,6 +1684,7 @@ function EditDialog({ item, modules, departments, canChooseDepartment, onClose, 
         <div className="field">
           <label htmlFor="edit-type">Feedback type</label>
           <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+            {form.category === "INQUIRY" && <option value="INQUIRY">Inquiry</option>}
             {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
           </select>
         </div>

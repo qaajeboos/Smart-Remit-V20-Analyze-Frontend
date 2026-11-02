@@ -367,6 +367,7 @@
 .dot.bug { background: #e11d48; }
 .dot.logic { background: #0d9488; }
 .dot.business { background: #ea580c; }
+.dot.feature { background: #0284c7; }
 .dot.inquiry { background: #64748b; }
 
 .result-bar {
@@ -467,6 +468,7 @@
 .tag.bug { background: #ffe4e6; color: #9f1239; }
 .tag.logic { background: #ccfbf1; color: #115e59; }
 .tag.business { background: #ffedd5; color: #9a3412; }
+.tag.feature { background: #e0f2fe; color: #075985; }
 .tag.inquiry { background: #f1f5f9; color: #475569; }
 
 .status-switch { display: flex; gap: 6px; flex-wrap: wrap; }
