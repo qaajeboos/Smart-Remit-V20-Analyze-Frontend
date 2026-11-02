@@ -56,7 +56,22 @@
 
 .menu-row { display: flex; align-items: stretch; gap: 4px; }
 .menu-row .menu-main { flex: 1; width: auto; }
-.menu button.icon-button { width: 36px; justify-content: center; flex-shrink: 0; }
+.menu-row:has(.item-menu.open) { position: relative; z-index: 6; }
+.menu button.item-menu-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.menu .item-menu-list button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+}
 .menu-row.active .menu-main {
   background: var(--accent-light);
   border-color: #dbeafe;
@@ -73,8 +88,6 @@
 }
 .icon-button { width: 36px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
 .icon-button:hover, .danger:hover { background: #fef2f2; }
-.icon-button.edit-icon { color: var(--text); }
-.icon-button.edit-icon:hover { background: var(--bg); }
 .danger { border-color: #fecaca; background: #fff; padding: 8px 12px; }
 .item { position: relative; }
 .item:has(.item-menu.open) { z-index: 5; }
@@ -124,7 +137,8 @@
   font-weight: 600;
 }
 .item-menu-list button:hover { background: var(--bg); }
-.item-menu-list button.menu-danger { color: #dc2626; }
+.item-menu-list button.menu-danger,
+.item-menu-list button.menu-danger .delete-icon { color: #dc2626; }
 .item-menu-list button.menu-danger:hover { background: #fef2f2; }
 .check-line { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 0.9rem; }
 .dialog.screenshot-view {

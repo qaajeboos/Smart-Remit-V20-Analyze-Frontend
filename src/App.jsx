@@ -309,30 +309,13 @@ function Dashboard({ user, onSignOut }) {
                 </span>
                 <span className="count">{moduleCounts[module.id] || 0}</span>
               </button>
-              {canCreateModule && (
-                <button
-                  type="button"
-                  className="icon-button edit-icon"
-                  aria-label={`Edit ${module.name}`}
-                  onClick={() => setEditingModule(module)}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-3L16.5 4.5a2 2 0 0 0-3 0L3 15v5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`Delete ${module.name}`}
-                  onClick={() => setPendingDelete({ kind: "module", module })}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              )}
+              <ModuleActions
+                name={module.name}
+                canEdit={canCreateModule}
+                canDelete={canDelete}
+                onEdit={() => setEditingModule(module)}
+                onDelete={() => setPendingDelete({ kind: "module", module })}
+              />
             </div>
           ))}
         </nav>
@@ -575,6 +558,68 @@ function Dashboard({ user, onSignOut }) {
 function includesOrigin(selected, itemOriginKey) {
   if (selected === "REVIEW") return itemOriginKey === "REVIEW" || itemOriginKey === "OPERATIONS";
   return itemOriginKey === selected;
+}
+
+function ModuleActions({ name, canEdit, canDelete, onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointer(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function choose(action) {
+    setOpen(false);
+    action();
+  }
+
+  if (!canEdit && !canDelete) return null;
+
+  return (
+    <div className={`item-menu${open ? " open" : ""}`} ref={rootRef}>
+      <button
+        type="button"
+        className="item-menu-button"
+        aria-label={`Actions for ${name}`}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="dots" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="item-menu-list" role="menu">
+          {canEdit && (
+            <button type="button" role="menuitem" onClick={() => choose(onEdit)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-3L16.5 4.5a2 2 0 0 0-3 0L3 15v5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+              Edit
+            </button>
+          )}
+          {canDelete && (
+            <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>
+              <svg className="delete-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ItemActions({ item, canEdit, canDelete, onEdit, onDelete }) {
