@@ -127,6 +127,13 @@ export function createModule(payload) {
   });
 }
 
+export function updateModule(id, payload) {
+  return request(`/api/modules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function fetchFeedback() {
   return request("/api/feedback");
 }

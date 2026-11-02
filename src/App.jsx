@@ -4,6 +4,7 @@ import {
   clearSession,
   createFeedback,
   createModule,
+  updateModule,
   createUser,
   deleteFeedback,
   deleteUser,
@@ -24,6 +25,7 @@ import {
   writeSession,
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
+import { ModuleMark, IconPicker } from "./moduleIcons";
 import { CATEGORIES, ORIGINS, STATUSES, categoryById, originById } from "./labels";
 import "./App.css";
 
@@ -78,6 +80,7 @@ function Dashboard({ user, onSignOut }) {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [editingModule, setEditingModule] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -301,11 +304,23 @@ function Dashboard({ user, onSignOut }) {
             <div className={`menu-row ${moduleId === module.id ? "active" : ""}`} key={module.id}>
               <button type="button" className="menu-main" onClick={() => setModuleId(module.id)}>
                 <span className="menu-name">
-                  <span>{module.icon || "📌"}</span>
+                  <ModuleMark name={module.icon} />
                   <span>{module.name}</span>
                 </span>
                 <span className="count">{moduleCounts[module.id] || 0}</span>
               </button>
+              {canCreateModule && (
+                <button
+                  type="button"
+                  className="icon-button edit-icon"
+                  aria-label={`Edit ${module.name}`}
+                  onClick={() => setEditingModule(module)}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-3L16.5 4.5a2 2 0 0 0-3 0L3 15v5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              )}
               {canDelete && (
                 <button
                   type="button"
@@ -431,7 +446,7 @@ function Dashboard({ user, onSignOut }) {
           return (
           <section className="section-card" key={group.moduleId}>
             <div className="section-heading">
-              <h3>{group.moduleIcon || "📌"} {group.moduleName}</h3>
+              <h3><ModuleMark name={group.moduleIcon} /> {group.moduleName}</h3>
               {moduleRecord?.createdByName && <p className="module-creator">Created by {moduleRecord.createdByName}</p>}
             </div>
             <div className="items">
@@ -516,6 +531,21 @@ function Dashboard({ user, onSignOut }) {
         />
       )}
       {userDialogOpen && <AddUserDialog onClose={() => setUserDialogOpen(false)} />}
+      {editingModule && (
+        <EditModuleDialog
+          module={editingModule}
+          onClose={() => setEditingModule(null)}
+          onSaved={(updated) => {
+            setModules((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)).sort((a, b) => a.name.localeCompare(b.name)));
+            setItems((current) => current.map((item) => (
+              item.moduleId === updated.id
+                ? { ...item, moduleName: updated.name, moduleIcon: updated.icon }
+                : item
+            )));
+            setEditingModule(null);
+          }}
+        />
+      )}
       {editing && (
         <EditDialog
           item={editing}
@@ -699,14 +729,8 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule =
               />
             </div>
             <div className="field">
-              <label htmlFor="module-icon">Icon</label>
-              <input
-                id="module-icon"
-                maxLength={16}
-                value={moduleForm.icon}
-                onChange={(event) => setModuleForm({ ...moduleForm, icon: event.target.value })}
-                placeholder="Optional, for example 🏢"
-              />
+              <label>Icon</label>
+              <IconPicker value={moduleForm.icon} onChange={(icon) => setModuleForm({ ...moduleForm, icon })} />
             </div>
             <div className="field">
               <label htmlFor="module-description">Description</label>
@@ -1168,6 +1192,82 @@ function PinResetPage({ user, onUpdated, onSignOut }) {
         </button>
         <button type="button" className="ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSignOut}>
           Sign out
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function EditModuleDialog({ module, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    name: module.name,
+    description: module.description || "",
+    icon: module.icon || "",
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await updateModule(module.id, {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        icon: form.icon,
+      });
+      onSaved(updated);
+    } catch (err) {
+      setError(err.message || "The module could not be updated.");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay" onMouseDown={onClose}>
+      <form className="dialog" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}>
+        <div className="dialog-head">
+          <div>
+            <h2>Edit module</h2>
+            <p>Update the name, icon, and description.</p>
+          </div>
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
+        {error && <div className="error">{error}</div>}
+        <div className="field">
+          <label htmlFor="edit-module-name">Module name</label>
+          <input
+            id="edit-module-name"
+            required
+            maxLength={120}
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label>Icon</label>
+          <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
+        </div>
+        <div className="field">
+          <label htmlFor="edit-module-description">Description</label>
+          <textarea
+            id="edit-module-description"
+            maxLength={400}
+            value={form.description}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+          />
+        </div>
+        <button type="submit" className="primary" disabled={saving || form.name.trim().length === 0}>
+          {saving ? "Saving…" : "Save changes"}
         </button>
       </form>
     </div>

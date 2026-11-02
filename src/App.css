@@ -73,6 +73,8 @@
 }
 .icon-button { width: 36px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
 .icon-button:hover, .danger:hover { background: #fef2f2; }
+.icon-button.edit-icon { color: var(--text); }
+.icon-button.edit-icon:hover { background: var(--bg); }
 .danger { border-color: #fecaca; background: #fff; padding: 8px 12px; }
 .item { position: relative; }
 .item:has(.item-menu.open) { z-index: 5; }
@@ -384,6 +386,9 @@
   margin: 0 0 16px;
 }
 .section-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 1.15rem;
   color: var(--accent);
   margin: 0;
@@ -549,6 +554,60 @@ footer { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top:
 }
 .text-link:hover { text-decoration: underline; }
 .pin-input { letter-spacing: 0.28em; font-variant-numeric: tabular-nums; }
+
+.module-emoji { line-height: 1; }
+.icon-picker { position: relative; }
+.icon-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.icon-picker-panel {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+.icon-picker-panel input { width: 100%; margin-bottom: 10px; }
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.icon-grid button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.icon-grid button.active,
+.icon-grid button:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
 
 @media (max-width: 860px) {
   .app { flex-direction: column; }
