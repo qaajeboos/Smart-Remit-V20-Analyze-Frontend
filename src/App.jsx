@@ -120,8 +120,9 @@ function Dashboard({ user, onSignOut }) {
       const statusOk = status === "all" || item.status === status;
       const listed = categoryOk && statusOk && matchesQuery(item, normalizedQuery);
       if (!listed) return;
-      if (itemOrigin(item) === "REVIEW") counts.all += 1;
-      if (itemOrigin(item) === origin) counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
+      const key = itemOrigin(item);
+      if (key === "REVIEW" || key === "OPERATIONS") counts.all += 1;
+      if (includesOrigin(origin, key)) counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
     });
     return counts;
   }, [items, modules, category, status, normalizedQuery, origin]);
@@ -134,7 +135,7 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const statusOk = status === "all" || item.status === status;
-      if (itemOrigin(item) === origin && moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
+      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
         counts.all += 1;
         counts[item.category] += 1;
       }
@@ -150,7 +151,7 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const categoryOk = category === "all" || item.category === category;
-      if (itemOrigin(item) === origin && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
+      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
         counts[item.status] += 1;
       }
     });
@@ -174,7 +175,7 @@ function Dashboard({ user, onSignOut }) {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = category === "all" || item.category === category;
     const statusOk = status === "all" || item.status === status;
-    return itemOrigin(item) === origin && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
   });
 
   const groups = [];
@@ -218,7 +219,7 @@ function Dashboard({ user, onSignOut }) {
   const printable = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = category === "all" || item.category === category;
-    return item.status === "IN_PROGRESS" && itemOrigin(item) === origin && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
+    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
   });
   const printableGroups = [];
   printable.forEach((item) => {
@@ -312,7 +313,9 @@ function Dashboard({ user, onSignOut }) {
                   aria-label={`Delete ${module.name}`}
                   onClick={() => setPendingDelete({ kind: "module", module })}
                 >
-                  Delete
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
               )}
             </div>
@@ -454,7 +457,9 @@ function Dashboard({ user, onSignOut }) {
                       </span>
                       <span className="item-tags">
                         {((item.screenshots?.length || 0) > 0 || item.hasScreenshot) && (
-                          <span className="tag shot">Screenshot attached</span>
+                          <button type="button" className="view-shot" onClick={() => setViewing(item)}>
+                            View Screenshot
+                          </button>
                         )}
                         <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
                       </span>
@@ -480,7 +485,6 @@ function Dashboard({ user, onSignOut }) {
                         item={item}
                         canEdit={canEdit}
                         canDelete={canDelete}
-                        onView={() => setViewing(item)}
                         onEdit={() => setEditing(item)}
                         onDelete={() => setPendingDelete({ kind: "feedback", item })}
                       />
@@ -538,10 +542,14 @@ function Dashboard({ user, onSignOut }) {
   );
 }
 
-function ItemActions({ item, canEdit, canDelete, onView, onEdit, onDelete }) {
+function includesOrigin(selected, itemOriginKey) {
+  if (selected === "REVIEW") return itemOriginKey === "REVIEW" || itemOriginKey === "OPERATIONS";
+  return itemOriginKey === selected;
+}
+
+function ItemActions({ item, canEdit, canDelete, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
-  const hasScreenshots = (item.screenshots?.length || 0) > 0;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -564,7 +572,7 @@ function ItemActions({ item, canEdit, canDelete, onView, onEdit, onDelete }) {
     action();
   }
 
-  if (!hasScreenshots && !canEdit && !canDelete) return null;
+  if (!canEdit && !canDelete) return null;
 
   return (
     <div className={`item-menu${open ? " open" : ""}`} ref={rootRef}>
@@ -579,11 +587,6 @@ function ItemActions({ item, canEdit, canDelete, onView, onEdit, onDelete }) {
       </button>
       {open && (
         <div className="item-menu-list" role="menu">
-          {hasScreenshots && (
-            <button type="button" role="menuitem" onClick={() => choose(onView)}>
-              {item.screenshots.length > 1 ? "View screenshots" : "View screenshot"}
-            </button>
-          )}
           {canEdit && <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>}
           {canDelete && (
             <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>Delete</button>

@@ -8,8 +8,8 @@ export const ORIGINS = [
   },
   {
     id: "OPERATIONS",
-    label: "Comments From Operations",
-    title: "Comments From Operations",
+    label: "From Operations",
+    title: "From Operations",
     description: "Comments and feedback recorded from the operations department about the new system.",
     register: "Register comment",
   },

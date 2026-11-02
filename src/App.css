@@ -11,7 +11,7 @@
 .app { display: flex; min-height: 100vh; }
 
 .sidebar {
-  width: 280px;
+  width: 340px;
   flex-shrink: 0;
   background: #fff;
   border-right: 1px solid var(--border);
@@ -56,7 +56,7 @@
 
 .menu-row { display: flex; align-items: stretch; gap: 4px; }
 .menu-row .menu-main { flex: 1; width: auto; }
-.menu button.icon-button { width: auto; justify-content: center; }
+.menu button.icon-button { width: 36px; justify-content: center; flex-shrink: 0; }
 .menu-row.active .menu-main {
   background: var(--accent-light);
   border-color: #dbeafe;
@@ -71,7 +71,7 @@
   cursor: pointer;
   font-weight: 600;
 }
-.icon-button { padding: 0 10px; font-size: 0.78rem; }
+.icon-button { width: 36px; padding: 0; display: grid; place-items: center; flex-shrink: 0; }
 .icon-button:hover, .danger:hover { background: #fef2f2; }
 .danger { border-color: #fecaca; background: #fff; padding: 8px 12px; }
 .item { position: relative; }
@@ -426,7 +426,18 @@
   font-weight: 600;
   white-space: nowrap;
 }
-.tag.shot { background: #eff6ff; color: #1d4ed8; }
+.view-shot {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.view-shot:hover { background: #dbeafe; }
 .tag.legacy { background: #fef3c7; color: #92400e; }
 .tag.automation { background: #d1fae5; color: #065f46; }
 .tag.ux { background: #e0e7ff; color: #3730a3; }
