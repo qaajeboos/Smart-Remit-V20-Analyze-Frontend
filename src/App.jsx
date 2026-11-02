@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Settings } from "lucide-react";
+import { Building2, ChevronDown, Globe, Layers, LogOut, Settings, Shield, Users } from "lucide-react";
 import {
   changePin,
   checkAccess,
@@ -8,16 +8,20 @@ import {
   createAllowedIp,
   createFeedback,
   createModule,
+  createDepartment,
   updateModule,
+  updateDepartment,
   createUser,
   deleteAllowedIp,
   deleteFeedback,
   deleteUser,
   fetchAllowedIps,
   fetchDevices,
+  fetchDepartments,
   fetchSecurityEvents,
   fetchUsers,
   deleteModule,
+  deleteDepartment,
   fetchFeedback,
   fetchMe,
   fetchModules,
@@ -40,7 +44,7 @@ import {
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
 import { ModuleMark, IconPicker } from "./moduleIcons";
-import { CATEGORIES, STATUSES, categoryById, originById } from "./labels";
+import { CATEGORIES, STATUSES, categoryById } from "./labels";
 import "./App.css";
 
 const ROLES = [
@@ -53,13 +57,20 @@ function roleLabel(id) {
   return ROLES.find((role) => role.id === id)?.label || "Admin";
 }
 
-const DEPARTMENTS = [
-  { id: "IT", label: "IT" },
-  { id: "OPERATIONS", label: "Operations" },
-];
+function manageTitle(view, fallback) {
+  if (view === "users") return "Users";
+  if (view === "departments") return "Departments";
+  if (view === "modules") return "Modules";
+  if (view) return "Manage";
+  return fallback;
+}
 
-function departmentLabel(id) {
-  return DEPARTMENTS.find((entry) => entry.id === id)?.label || "IT";
+function manageDescription(view, fallback) {
+  if (view === "users") return "Accounts that can sign in. Each person belongs to one department.";
+  if (view === "departments") return "Departments used when feedback is registered. Each one appears in the sidebar.";
+  if (view === "modules") return "Modules are shared. Feedback under a module is separated by department.";
+  if (view) return "Networks, people, departments, modules, and the security log.";
+  return fallback;
 }
 
 function initials(name) {
@@ -103,12 +114,10 @@ function categoryMatches(item, selectedCategory) {
   return item.category === selectedCategory;
 }
 
-function itemOrigin(item) {
-  return item.origin || "REVIEW";
-}
-
 function Dashboard({ user, onSignOut, onUserUpdated }) {
   const [modules, setModules] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [openMenus, setOpenMenus] = useState({});
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -129,14 +138,15 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
   const role = user.role || "ADMIN";
-  const department = user.department === "OPERATIONS" ? "OPERATIONS" : "IT";
   const canDelete = user.username === "bulxan";
   const canManageUsers = user.username === "bulxan";
   const canCreateModule = role === "ADMIN";
+  const canManage = role === "ADMIN";
   const canCreateFeedback = role === "ADMIN" || role === "REPORTER";
   const canEdit = role === "ADMIN";
   const canChangeStatus = role === "ADMIN" || role === "DEVELOPER";
   const canRegister = canCreateModule || canCreateFeedback;
+  const selectedDepartment = departments.find((entry) => entry.id === origin);
   const collection = origin === "DASHBOARD"
     ? {
         title: "Dashboard",
@@ -144,12 +154,22 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
         description: "All feedback, with the newest record first.",
         register: "Register feedback",
       }
-    : originById(origin === "REVIEW" ? "REVIEW" : "OPERATIONS");
+    : {
+        title: selectedDepartment?.name || "Department",
+        label: selectedDepartment?.name || "department",
+        description: `Feedback reported by ${selectedDepartment?.name || "this department"}.`,
+        register: "Register feedback",
+      };
 
   async function load() {
-    const [nextModules, nextItems] = await Promise.all([fetchModules(), fetchFeedback()]);
+    const [nextModules, nextItems, nextDepartments] = await Promise.all([fetchModules(), fetchFeedback(), fetchDepartments()]);
     setModules(nextModules);
     setItems(nextItems);
+    setDepartments(nextDepartments);
+    setOpenMenus((current) => {
+      if (Object.keys(current).length > 0) return current;
+      return user.departmentId ? { [user.departmentId]: true } : {};
+    });
   }
 
   useEffect(() => {
@@ -164,32 +184,29 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
   const normalizedQuery = query.trim().toLowerCase();
 
   const moduleCounts = useMemo(() => {
-    const counts = { REVIEW: {}, OPERATIONS: {} };
-    modules.forEach((module) => {
-      counts.REVIEW[module.id] = 0;
-      counts.OPERATIONS[module.id] = 0;
+    const counts = {};
+    departments.forEach((department) => {
+      counts[department.id] = {};
+      modules.forEach((module) => {
+        counts[department.id][module.id] = 0;
+      });
     });
     items.forEach((item) => {
-      const key = itemOrigin(item);
-      if (key !== "REVIEW" && key !== "OPERATIONS") return;
+      if (!item.departmentId || !counts[item.departmentId]) return;
       const statusOk = status === "all" || item.status === status;
       if (!statusOk || !matchesQuery(item, normalizedQuery)) return;
-      counts[key][item.moduleId] = (counts[key][item.moduleId] || 0) + 1;
+      counts[item.departmentId][item.moduleId] = (counts[item.departmentId][item.moduleId] || 0) + 1;
     });
     return counts;
-  }, [items, modules, status, normalizedQuery]);
+  }, [items, modules, departments, status, normalizedQuery]);
 
   const areaCounts = useMemo(() => {
-    const counts = { DASHBOARD: 0, REVIEW: 0, OPERATIONS: 0 };
+    let total = 0;
     items.forEach((item) => {
       const statusOk = status === "all" || item.status === status;
-      if (!statusOk || !matchesQuery(item, normalizedQuery)) return;
-      const key = itemOrigin(item);
-      if (key === "REVIEW" || key === "OPERATIONS") counts.DASHBOARD += 1;
-      if (key === "REVIEW") counts.REVIEW += 1;
-      if (key === "OPERATIONS") counts.OPERATIONS += 1;
+      if (statusOk && matchesQuery(item, normalizedQuery)) total += 1;
     });
-    return counts;
+    return { DASHBOARD: total };
   }, [items, status, normalizedQuery]);
 
   const categoryCounts = useMemo(() => {
@@ -200,7 +217,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const statusOk = status === "all" || item.status === status;
-      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
+      if (includesOrigin(origin, item) && moduleOk && statusOk && matchesQuery(item, normalizedQuery)) {
         counts.all += 1;
         counts[item.category] += 1;
       }
@@ -216,7 +233,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
       const categoryOk = categoryMatches(item, category);
-      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
+      if (includesOrigin(origin, item) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
         counts[item.status] += 1;
       }
     });
@@ -227,7 +244,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = categoryMatches(item, category);
     const statusOk = status === "all" || item.status === status;
-    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+    return includesOrigin(origin, item) && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
   });
 
   const groups = [];
@@ -261,7 +278,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
 
   const selectedModule = modules.find((module) => module.id === moduleId);
   const summary = moduleId === "all" && category === "all" && status === "all" && !normalizedQuery
-    ? (origin === "DASHBOARD" ? "Showing all feedback" : origin === "REVIEW" ? "Showing IT feedback" : "Showing operations feedback")
+    ? (origin === "DASHBOARD" ? "Showing all feedback" : `Showing ${selectedDepartment?.name || "department"} feedback`)
     : `Showing ${category === "all" ? "all feedback" : categoryById(category).label}${
         status === "all" ? "" : `, ${STATUSES.find((entry) => entry.id === status).label.toLowerCase()}`
       }${origin !== "DASHBOARD" && selectedModule ? ` in ${selectedModule.name}` : ""}`;
@@ -285,7 +302,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
   const printable = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
     const categoryOk = categoryMatches(item, category);
-    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
+    return item.status === "IN_PROGRESS" && includesOrigin(origin, item) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
   });
   const printableGroups = [];
   printable.forEach((item) => {
@@ -309,7 +326,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
       await exportFeedbackPdf({
         groups: printableGroups,
         moduleLabel,
-        typeLabel: origin === "REVIEW" ? typeLabel : `${collection.label} · ${typeLabel}`,
+        typeLabel: origin === "DASHBOARD" ? typeLabel : `${collection.label} · ${typeLabel}`,
         search: query.trim(),
       });
     } catch (exportError) {
@@ -326,10 +343,11 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
       return;
     }
     setItems((current) => [...current, created.item]);
-    setOrigin(itemOrigin(created.item) === "OPERATIONS" ? "OPERATIONS" : "REVIEW");
+    setOrigin(created.item.departmentId);
     setModuleId(created.item.moduleId);
     setCategory(created.item.category);
     setStatus(created.item.status);
+    setOpenMenus((current) => ({ ...current, [created.item.departmentId]: true }));
     setManageView(null);
     setDialogOpen(false);
   }
@@ -352,7 +370,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
       <aside className="sidebar">
         <div className="brand">
           <h1>Smart V2 Review</h1>
-          <p>IT and operations feedback</p>
+          <p>Feedback by department</p>
         </div>
         <p className="menu-label">Views</p>
         <nav className="menu" aria-label="Feedback views">
@@ -365,57 +383,48 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
             <span className="count">{areaCounts.DASHBOARD || 0}</span>
           </button>
         </nav>
-        <p className="menu-label">IT</p>
-        <nav className="menu" aria-label="IT modules">
-          {modules.map((module) => (
-            <div className={`menu-row ${origin === "REVIEW" && moduleId === module.id && !manageView ? "active" : ""}`} key={module.id}>
-              <button
-                type="button"
-                className="menu-main"
-                onClick={() => { setManageView(null); setOrigin("REVIEW"); setModuleId(module.id); }}
-              >
-                <span className="menu-name">
-                  <ModuleMark name={module.icon} />
-                  <span>{module.name}</span>
-                </span>
-                <span className="count">{moduleCounts.REVIEW[module.id] || 0}</span>
-              </button>
-              <ModuleActions
-                name={module.name}
-                canEdit={canCreateModule}
-                canDelete={canDelete}
-                onEdit={() => setEditingModule(module)}
-                onDelete={() => setPendingDelete({ kind: "module", module })}
-              />
-            </div>
-          ))}
+        <p className="menu-label">Departments</p>
+        <nav className="menu" aria-label="Departments">
+          {departments.map((department) => {
+            const open = Boolean(openMenus[department.id]);
+            return (
+              <div className="menu-group" key={department.id}>
+                <button
+                  type="button"
+                  className={`menu-parent${origin === department.id && !manageView ? " active" : ""}`}
+                  aria-expanded={open}
+                  onClick={() => setOpenMenus((current) => ({ ...current, [department.id]: !current[department.id] }))}
+                >
+                  <span className="menu-name">
+                    <ModuleMark name={department.icon} />
+                    <span>{department.name}</span>
+                  </span>
+                  <ChevronDown className={`chevron${open ? " open" : ""}`} size={18} aria-hidden="true" />
+                </button>
+                {open && (
+                  <div className="menu-children">
+                    {modules.length === 0 && <p className="menu-empty">No modules yet</p>}
+                    {modules.map((module) => (
+                      <button
+                        type="button"
+                        className={origin === department.id && moduleId === module.id && !manageView ? "active" : ""}
+                        key={module.id}
+                        onClick={() => { setManageView(null); setOrigin(department.id); setModuleId(module.id); }}
+                      >
+                        <span className="menu-name">
+                          <ModuleMark name={module.icon} />
+                          <span>{module.name}</span>
+                        </span>
+                        <span className="count">{moduleCounts[department.id]?.[module.id] || 0}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
-        <p className="menu-label">Operations</p>
-        <nav className="menu" aria-label="Operations modules">
-          {modules.map((module) => (
-            <div className={`menu-row ${origin === "OPERATIONS" && moduleId === module.id && !manageView ? "active" : ""}`} key={module.id}>
-              <button
-                type="button"
-                className="menu-main"
-                onClick={() => { setManageView(null); setOrigin("OPERATIONS"); setModuleId(module.id); }}
-              >
-                <span className="menu-name">
-                  <ModuleMark name={module.icon} />
-                  <span>{module.name}</span>
-                </span>
-                <span className="count">{moduleCounts.OPERATIONS[module.id] || 0}</span>
-              </button>
-              <ModuleActions
-                name={module.name}
-                canEdit={canCreateModule}
-                canDelete={canDelete}
-                onEdit={() => setEditingModule(module)}
-                onDelete={() => setPendingDelete({ kind: "module", module })}
-              />
-            </div>
-          ))}
-        </nav>
-        {canManageUsers && (
+        {canManage && (
           <button type="button" className={`manage-action${manageView ? " active" : ""}`} onClick={() => setManageView("home")}>
             <Settings size={18} aria-hidden="true" />
             Manage
@@ -426,14 +435,8 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
       <main className="main">
         <header className="main-header">
           <div>
-            <h2>{manageView === "users" ? "Users" : manageView ? "Manage" : collection.title}</h2>
-            <p>
-              {manageView === "users"
-                ? "Accounts that can sign in. Department decides whether their feedback appears under IT or Operations."
-                : manageView
-                  ? "Allowed networks, users, the security log, and sign out."
-                  : collection.description}
-            </p>
+            <h2>{manageTitle(manageView, collection.title)}</h2>
+            <p>{manageDescription(manageView, collection.description)}</p>
           </div>
           <div className="header-actions">
             {canRegister && !manageView && (
@@ -449,11 +452,20 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
           <ManagePanel
             view={manageView}
             currentUsername={user.username}
+            canManageUsers={canManageUsers}
+            canDelete={canDelete}
+            modules={modules}
             onUsers={() => setManageView("users")}
+            onDepartments={() => setManageView("departments")}
+            onModules={() => setManageView("modules")}
             onHome={() => setManageView("home")}
             onNetworks={() => setNetworksOpen(true)}
             onSecurity={() => setSecurityOpen(true)}
             onSignOut={onSignOut}
+            onModulesChanged={(module) => setModules((current) => [...current, module].sort((a, b) => a.name.localeCompare(b.name)))}
+            onDepartmentsChanged={setDepartments}
+            onEditModule={setEditingModule}
+            onDeleteModule={(module) => setPendingDelete({ kind: "module", module })}
           />
         ) : (
         <>
@@ -561,7 +573,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
                           </button>
                         )}
                         {origin === "DASHBOARD" && (
-                          <span className="tag inquiry">{itemOrigin(item) === "OPERATIONS" ? "Operations" : "IT"}</span>
+                          <span className="tag inquiry">{item.departmentName}</span>
                         )}
                         <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
                       </span>
@@ -611,9 +623,10 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
       {dialogOpen && (
         <RegisterDialog
           modules={modules}
+          departments={departments}
+          canChooseDepartment={canCreateModule}
           initialModuleId={moduleId === "all" ? modules[0]?.id ?? "" : moduleId}
-          department={department}
-          allowModule={canCreateModule}
+          initialDepartmentId={origin === "DASHBOARD" ? user.departmentId : origin}
           allowStatus={canChangeStatus}
           onClose={() => setDialogOpen(false)}
           onCreated={handleCreated}
@@ -650,6 +663,8 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
         <EditDialog
           item={editing}
           modules={modules}
+          departments={departments}
+          canChooseDepartment={canCreateModule}
           onClose={() => setEditing(null)}
           onSaved={(updated) => {
             setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
@@ -672,10 +687,9 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
   );
 }
 
-function includesOrigin(selected, itemOriginKey) {
-  if (selected === "DASHBOARD") return itemOriginKey === "REVIEW" || itemOriginKey === "OPERATIONS";
-  if (selected === "REVIEW") return itemOriginKey === "REVIEW";
-  return itemOriginKey === selected;
+function includesOrigin(selected, item) {
+  if (selected === "DASHBOARD") return true;
+  return item.departmentId === selected;
 }
 
 function ModuleActions({ name, canEdit, canDelete, onEdit, onDelete }) {
@@ -790,17 +804,13 @@ function ItemActions({ item, canEdit, canDelete, onEdit, onDelete }) {
   );
 }
 
-function RegisterDialog({ modules, initialModuleId, department = "IT", allowModule = true, allowStatus = true, onClose, onCreated }) {
-  const recordOrigin = department === "OPERATIONS" ? "OPERATIONS" : "REVIEW";
-  const [tab, setTab] = useState(allowModule && modules.length === 0 ? "module" : "feedback");
-  const [moduleForm, setModuleForm] = useState(emptyModuleForm);
+function RegisterDialog({ modules, departments, canChooseDepartment, initialModuleId, initialDepartmentId, allowStatus = true, onClose, onCreated }) {
   const [feedbackForm, setFeedbackForm] = useState({
     ...emptyFeedbackForm,
     moduleId: initialModuleId === "" ? "" : String(initialModuleId),
-    origin: recordOrigin,
+    departmentId: initialDepartmentId ? String(initialDepartmentId) : "",
   });
   const [formError, setFormError] = useState("");
-  const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [rows, setRows] = useState(() => [newShotRow()]);
 
@@ -812,32 +822,14 @@ function RegisterDialog({ modules, initialModuleId, department = "IT", allowModu
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function submitModule(event) {
-    event.preventDefault();
-    setSaving(true);
-    setFormError("");
-    try {
-      const module = await createModule({
-        name: moduleForm.name.trim(),
-        description: moduleForm.description.trim(),
-        icon: moduleForm.icon.trim(),
-      });
-      setModuleForm(emptyModuleForm);
-      setFeedbackForm((current) => ({ ...current, moduleId: String(module.id) }));
-      setTab("feedback");
-      setNotice(`${module.name} is saved. Add the feedback for it next.`);
-      setSaving(false);
-      onCreated({ kind: "module", module });
-    } catch (submitError) {
-      setFormError(submitError.message);
-      setSaving(false);
-    }
-  }
-
   async function submitFeedback(event) {
     event.preventDefault();
     if (!feedbackForm.moduleId) {
-      setFormError("Register a module before adding feedback.");
+      setFormError("Choose a module before adding feedback.");
+      return;
+    }
+    if (canChooseDepartment && !feedbackForm.departmentId) {
+      setFormError("Choose a department.");
       return;
     }
     setSaving(true);
@@ -850,7 +842,7 @@ function RegisterDialog({ modules, initialModuleId, department = "IT", allowModu
         details: feedbackForm.details.trim(),
         category: feedbackForm.category,
         status: allowStatus ? feedbackForm.status : "IN_PROGRESS",
-        origin: recordOrigin,
+        departmentId: canChooseDepartment ? Number(feedbackForm.departmentId) : Number(initialDepartmentId),
         operationsTopic: null,
         screenshots,
       });
@@ -864,58 +856,27 @@ function RegisterDialog({ modules, initialModuleId, department = "IT", allowModu
   return (
     <div className="overlay">
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="register-title">
-        <h3 id="register-title">Register</h3>
-        <p>{allowModule ? "Add a module first, then record feedback against it. The department on your account decides whether it is filed under IT or Operations." : "Record feedback against a module. Your department decides whether it is filed under IT or Operations."}</p>
-        {allowModule && (
-          <div className="tabs" role="tablist">
-            <button type="button" className={tab === "module" ? "active" : ""} onClick={() => setTab("module")}>
-              Module
-            </button>
-            <button type="button" className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>
-              Feedback
-            </button>
-          </div>
-        )}
-
-        {notice && <p className="form-note">{notice}</p>}
+        <h3 id="register-title">Register feedback</h3>
+        <p>{canChooseDepartment ? "Choose the department this feedback belongs to, then record it against a module." : "Record feedback against a module. It is filed under your department."}</p>
         {formError && <p className="form-error">{formError}</p>}
-
-        {allowModule && tab === "module" ? (
-          <form onSubmit={submitModule}>
-            <div className="field">
-              <label htmlFor="module-name">Module name</label>
-              <input
-                id="module-name"
-                required
-                maxLength={120}
-                value={moduleForm.name}
-                onChange={(event) => setModuleForm({ ...moduleForm, name: event.target.value })}
-                placeholder="Agent Creation"
-              />
-            </div>
-            <div className="field">
-              <label>Icon</label>
-              <IconPicker value={moduleForm.icon} onChange={(icon) => setModuleForm({ ...moduleForm, icon })} />
-            </div>
-            <div className="field">
-              <label htmlFor="module-description">Description</label>
-              <textarea
-                id="module-description"
-                maxLength={1000}
-                value={moduleForm.description}
-                onChange={(event) => setModuleForm({ ...moduleForm, description: event.target.value })}
-                placeholder="What this module covers"
-              />
-            </div>
-            <div className="dialog-actions">
-              <button type="button" className="ghost" onClick={onClose}>Cancel</button>
-              <button type="submit" className="primary" disabled={saving}>
-                {saving ? "Saving…" : "Save module"}
-              </button>
-            </div>
-          </form>
-        ) : (
+        {modules.length === 0 && <p className="form-error">An admin needs to create a module in Manage before feedback can be registered.</p>}
           <form onSubmit={submitFeedback}>
+            {canChooseDepartment && (
+              <div className="field">
+                <label htmlFor="feedback-department">Department</label>
+                <select
+                  id="feedback-department"
+                  required
+                  value={feedbackForm.departmentId}
+                  onChange={(event) => setFeedbackForm({ ...feedbackForm, departmentId: event.target.value })}
+                >
+                  <option value="">Select a department</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>{department.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="feedback-module">Module</label>
               <select
@@ -987,7 +948,6 @@ function RegisterDialog({ modules, initialModuleId, department = "IT", allowModu
               </button>
             </div>
           </form>
-        )}
       </div>
     </div>
   );
@@ -1643,10 +1603,10 @@ function EditModuleDialog({ module, onClose, onSaved }) {
   );
 }
 
-function EditDialog({ item, modules, onClose, onSaved }) {
+function EditDialog({ item, modules, departments, canChooseDepartment, onClose, onSaved }) {
   const [form, setForm] = useState({
     moduleId: String(item.moduleId),
-    origin: itemOrigin(item),
+    departmentId: item.departmentId ? String(item.departmentId) : "",
     category: item.category,
     title: item.title,
     details: item.details,
@@ -1673,7 +1633,7 @@ function EditDialog({ item, modules, onClose, onSaved }) {
       const screenshots = await readScreenshots(rows);
       const updated = await updateFeedback(item.id, {
         moduleId: Number(form.moduleId),
-        origin: form.origin,
+        departmentId: canChooseDepartment ? Number(form.departmentId) : item.departmentId,
         operationsTopic: null,
         category: form.category,
         title: form.title.trim(),
@@ -1693,9 +1653,18 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     <div className="overlay">
       <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title" onSubmit={submit}>
         <h3 id="edit-title">Edit feedback</h3>
-        <p>Update the record. It stays in the department that reported it. The original author stays as the person who created it.</p>
+        <p>Update the record. The original author stays as the person who created it.</p>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <p className="form-note">{form.origin === "OPERATIONS" ? "Reported by Operations" : "Reported by IT"}</p>
+        {canChooseDepartment ? (
+          <div className="field">
+            <label htmlFor="edit-department">Department</label>
+            <select id="edit-department" required value={form.departmentId} onChange={(event) => setForm({ ...form, departmentId: event.target.value })}>
+              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+            </select>
+          </div>
+        ) : (
+          <p className="form-note">Reported by {item.departmentName}</p>
+        )}
         <div className="field">
           <label htmlFor="edit-module">Module</label>
           <select id="edit-module" required value={form.moduleId} onChange={(event) => setForm({ ...form, moduleId: event.target.value })}>
@@ -1768,7 +1737,7 @@ function ProfileMenu({ user, onProfile, onSignOut }) {
         <div className="profile-popover">
           <strong>{user.fullName}</strong>
           <span>{user.username}</span>
-          <span>{roleLabel(user.role)} · {departmentLabel(user.department)}</span>
+          <span>{roleLabel(user.role)} · {user.departmentName}</span>
           <button type="button" onClick={() => { setOpen(false); onProfile(); }}>Manage profile</button>
           <button type="button" onClick={onSignOut}>Sign out</button>
         </div>
@@ -1828,7 +1797,7 @@ function ProfileDialog({ user, onClose, onUpdated }) {
         </div>
         <div className="field">
           <label htmlFor="profile-department">Department</label>
-          <input id="profile-department" value={departmentLabel(user.department)} readOnly />
+          <input id="profile-department" value={user.departmentName || ""} readOnly />
         </div>
         <div className="field">
           <label htmlFor="profile-pin">New PIN</label>
@@ -1847,19 +1816,266 @@ function ProfileDialog({ user, onClose, onUpdated }) {
   );
 }
 
-function ManagePanel({ view, currentUsername, onUsers, onHome, onNetworks, onSecurity, onSignOut }) {
-  if (view === "users") {
-    return <UsersPage currentUsername={currentUsername} onBack={onHome} />;
+function ManagePanel({
+  view,
+  currentUsername,
+  canManageUsers,
+  canDelete,
+  modules,
+  onUsers,
+  onDepartments,
+  onModules,
+  onHome,
+  onNetworks,
+  onSecurity,
+  onSignOut,
+  onEditModule,
+  onDeleteModule,
+  onModulesChanged,
+  onDepartmentsChanged,
+}) {
+  if (view === "users") return <UsersPage currentUsername={currentUsername} onBack={onHome} />;
+  if (view === "departments") return <DepartmentsPage onBack={onHome} onChanged={onDepartmentsChanged} />;
+  if (view === "modules") {
+    return (
+      <ModulesPage
+        modules={modules}
+        canDelete={canDelete}
+        onBack={onHome}
+        onEdit={onEditModule}
+        onDelete={onDeleteModule}
+        onCreated={onModulesChanged}
+      />
+    );
   }
   return (
     <section className="manage-screen" aria-label="Manage">
-      <div className="manage-grid">
-        <button type="button" onClick={onNetworks}>Allowed networks</button>
-        <button type="button" onClick={onUsers}>Users</button>
-        <button type="button" onClick={onSecurity}>Security log</button>
-        <button type="button" className="manage-signout" onClick={onSignOut}>Sign out</button>
+      <div className="manage-list">
+        {canManageUsers && (
+          <button type="button" onClick={onNetworks}><Globe size={18} aria-hidden="true" /> Allowed networks</button>
+        )}
+        {canManageUsers && (
+          <button type="button" onClick={onUsers}><Users size={18} aria-hidden="true" /> Users</button>
+        )}
+        <button type="button" onClick={onDepartments}><Building2 size={18} aria-hidden="true" /> Departments</button>
+        <button type="button" onClick={onModules}><Layers size={18} aria-hidden="true" /> Modules</button>
+        {canManageUsers && (
+          <button type="button" onClick={onSecurity}><Shield size={18} aria-hidden="true" /> Security log</button>
+        )}
+        <button type="button" className="manage-signout" onClick={onSignOut}><LogOut size={18} aria-hidden="true" /> Sign out</button>
       </div>
     </section>
+  );
+}
+
+function DepartmentsPage({ onBack, onChanged }) {
+  const [departments, setDepartments] = useState([]);
+  const [editor, setEditor] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchDepartments().then(setDepartments).catch((loadError) => setError(loadError.message));
+  }, []);
+
+  async function refresh(next) {
+    setDepartments(next);
+    if (onChanged) onChanged(next);
+  }
+
+  return (
+    <section className="manage-screen">
+      <div className="page-toolbar">
+        <button type="button" className="ghost" onClick={onBack}>Back</button>
+        <button type="button" className="primary" onClick={() => setEditor({ name: "", icon: "building-2" })}>Add department</button>
+      </div>
+      {error && <div className="banner" role="alert">{error}</div>}
+      <div className="user-list page-list">
+        {departments.map((department) => (
+          <div className="user-row" key={department.id}>
+            <span>
+              <strong><ModuleMark name={department.icon} /> {department.name}</strong>
+            </span>
+            <UserActions
+              name={department.name}
+              canDelete
+              onEdit={() => setEditor(department)}
+              onDevice={null}
+              onDelete={async () => {
+                try {
+                  await deleteDepartment(department.id);
+                  const next = await fetchDepartments();
+                  await refresh(next);
+                } catch (deleteError) {
+                  setError(deleteError.message);
+                }
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      {editor && (
+        <DepartmentDialog
+          department={editor.id ? editor : null}
+          initial={editor}
+          onClose={() => setEditor(null)}
+          onSaved={async () => {
+            const next = await fetchDepartments();
+            await refresh(next);
+            setEditor(null);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function DepartmentDialog({ department, initial, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: initial?.name || "", icon: initial?.icon || "building-2" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.icon) {
+      setError("Choose an icon.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = { name: form.name.trim(), icon: form.icon };
+      if (department) await updateDepartment(department.id, payload);
+      else await createDepartment(payload);
+      await onSaved();
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="department-title" onSubmit={submit}>
+        <h3 id="department-title">{department ? "Edit department" : "Add department"}</h3>
+        <p>The name appears in the sidebar. Choose an icon so the menu is easy to scan.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="department-name">Name</label>
+          <input id="department-name" required maxLength={80} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+        </div>
+        <div className="field">
+          <label>Icon</label>
+          <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save department"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ModulesPage({ modules, canDelete, onBack, onEdit, onDelete, onCreated }) {
+  const [adding, setAdding] = useState(false);
+
+  return (
+    <section className="manage-screen">
+      <div className="page-toolbar">
+        <button type="button" className="ghost" onClick={onBack}>Back</button>
+        <button type="button" className="primary" onClick={() => setAdding(true)}>Add module</button>
+      </div>
+      <div className="user-list page-list">
+        {modules.map((module) => (
+          <div className="user-row" key={module.id}>
+            <span>
+              <strong><ModuleMark name={module.icon} /> {module.name}</strong>
+              {module.createdByName && <span>Created by {module.createdByName}</span>}
+            </span>
+            <UserActions
+              name={module.name}
+              canDelete={canDelete}
+              onEdit={() => onEdit(module)}
+              onDelete={() => onDelete(module)}
+            />
+          </div>
+        ))}
+      </div>
+      {adding && (
+        <ModuleCreateDialog
+          onClose={() => setAdding(false)}
+          onCreated={(module) => {
+            onCreated(module);
+            setAdding(false);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ModuleCreateDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState(emptyModuleForm);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const module = await createModule({
+        name: form.name.trim(),
+        description: form.description.trim(),
+        icon: form.icon.trim(),
+      });
+      onCreated(module);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="create-module-title" onSubmit={submit}>
+        <h3 id="create-module-title">Add module</h3>
+        <p>Modules are shared by every department. Feedback is filed under the department chosen when it is registered.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="create-module-name">Module name</label>
+          <input id="create-module-name" required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Agent Creation" />
+        </div>
+        <div className="field">
+          <label>Icon</label>
+          <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} />
+        </div>
+        <div className="field">
+          <label htmlFor="create-module-description">Description</label>
+          <textarea id="create-module-description" maxLength={1000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="What this module covers" />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save module"}</button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -1896,7 +2112,9 @@ function UserActions({ name, canDelete, onEdit, onDevice, onDelete }) {
       {open && (
         <div className="item-menu-list" role="menu">
           <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>
-          <button type="button" role="menuitem" onClick={() => choose(onDevice)}>Registered device</button>
+          {onDevice && (
+            <button type="button" role="menuitem" onClick={() => choose(onDevice)}>Registered device</button>
+          )}
           {canDelete && (
             <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>Delete</button>
           )}
@@ -1932,7 +2150,7 @@ function UsersPage({ currentUsername, onBack }) {
           <div className="user-row" key={account.id}>
             <span>
               <strong>{account.fullName}</strong>
-              <span>{account.username} · {roleLabel(account.role)} · {departmentLabel(account.department)}</span>
+              <span>{account.username} · {roleLabel(account.role)} · {account.departmentName}</span>
             </span>
             <UserActions
               name={account.fullName}
@@ -1986,9 +2204,14 @@ function UsersPage({ currentUsername, onBack }) {
 }
 
 function AddUserDialog({ onClose, onCreated }) {
-  const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER", department: "" });
+  const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER", departmentId: "" });
+  const [departments, setDepartments] = useState([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchDepartments().then(setDepartments).catch((loadError) => setError(loadError.message));
+  }, []);
 
   useEffect(() => {
     function onKey(event) {
@@ -2000,7 +2223,7 @@ function AddUserDialog({ onClose, onCreated }) {
 
   async function submit(event) {
     event.preventDefault();
-    if (!form.department) {
+    if (!form.departmentId) {
       setError("Choose a department.");
       return;
     }
@@ -2011,7 +2234,7 @@ function AddUserDialog({ onClose, onCreated }) {
         fullName: form.fullName.trim(),
         username: form.username.trim(),
         role: form.role,
-        department: form.department,
+        departmentId: Number(form.departmentId),
       });
       await onCreated();
     } catch (saveError) {
@@ -2043,9 +2266,9 @@ function AddUserDialog({ onClose, onCreated }) {
         </div>
         <div className="field">
           <label htmlFor="user-department">Department</label>
-          <select id="user-department" required value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}>
+          <select id="user-department" required value={form.departmentId} onChange={(event) => setForm({ ...form, departmentId: event.target.value })}>
             <option value="">Select a department</option>
-            {DEPARTMENTS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+            {departments.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
           </select>
         </div>
         <div className="dialog-actions">
@@ -2059,13 +2282,18 @@ function AddUserDialog({ onClose, onCreated }) {
 
 function EditUserDialog({ account, onClose, onSaved }) {
   const locked = account.username === "bulxan";
+  const [departments, setDepartments] = useState([]);
   const [form, setForm] = useState({
     fullName: account.fullName || "",
     role: account.role || "REPORTER",
-    department: account.department || "IT",
+    departmentId: account.departmentId ? String(account.departmentId) : "",
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchDepartments().then(setDepartments).catch((loadError) => setError(loadError.message));
+  }, []);
 
   useEffect(() => {
     function onKey(event) {
@@ -2083,7 +2311,7 @@ function EditUserDialog({ account, onClose, onSaved }) {
       const updated = await updateUser(account.id, {
         fullName: form.fullName.trim(),
         role: locked ? "ADMIN" : form.role,
-        department: form.department,
+        departmentId: Number(form.departmentId),
       });
       onSaved(updated);
     } catch (saveError) {
@@ -2110,8 +2338,8 @@ function EditUserDialog({ account, onClose, onSaved }) {
         </div>
         <div className="field">
           <label htmlFor="edit-user-department">Department</label>
-          <select id="edit-user-department" required value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}>
-            {DEPARTMENTS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          <select id="edit-user-department" required value={form.departmentId} onChange={(event) => setForm({ ...form, departmentId: event.target.value })}>
+            {departments.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
           </select>
         </div>
         <div className="dialog-actions">

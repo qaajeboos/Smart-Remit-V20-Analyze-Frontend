@@ -146,6 +146,28 @@ export function updateUser(id, payload) {
   });
 }
 
+export function fetchDepartments() {
+  return request("/api/departments");
+}
+
+export function createDepartment(payload) {
+  return request("/api/departments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateDepartment(id, payload) {
+  return request(`/api/departments/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteDepartment(id) {
+  return request(`/api/departments/${id}`, { method: "DELETE" });
+}
+
 export function fetchUsers() {
   return request("/api/auth/users");
 }
