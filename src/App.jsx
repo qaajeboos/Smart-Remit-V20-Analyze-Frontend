@@ -117,7 +117,7 @@ function categoryMatches(item, selectedCategory) {
 function Dashboard({ user, onSignOut, onUserUpdated }) {
   const [modules, setModules] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [openMenus, setOpenMenus] = useState({});
+  const [openDepartmentId, setOpenDepartmentId] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -166,10 +166,6 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     setModules(nextModules);
     setItems(nextItems);
     setDepartments(nextDepartments);
-    setOpenMenus((current) => {
-      if (Object.keys(current).length > 0) return current;
-      return user.departmentId ? { [user.departmentId]: true } : {};
-    });
   }
 
   useEffect(() => {
@@ -193,12 +189,10 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     });
     items.forEach((item) => {
       if (!item.departmentId || !counts[item.departmentId]) return;
-      const statusOk = status === "all" || item.status === status;
-      if (!statusOk || !matchesQuery(item, normalizedQuery)) return;
       counts[item.departmentId][item.moduleId] = (counts[item.departmentId][item.moduleId] || 0) + 1;
     });
     return counts;
-  }, [items, modules, departments, status, normalizedQuery]);
+  }, [items, modules, departments]);
 
   const areaCounts = useMemo(() => {
     let total = 0;
@@ -347,7 +341,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
     setModuleId(created.item.moduleId);
     setCategory(created.item.category);
     setStatus(created.item.status);
-    setOpenMenus((current) => ({ ...current, [created.item.departmentId]: true }));
+    setOpenDepartmentId(created.item.departmentId);
     setManageView(null);
     setDialogOpen(false);
   }
@@ -377,7 +371,7 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
           <button
             type="button"
             className={origin === "DASHBOARD" && !manageView ? "active" : ""}
-            onClick={() => { setManageView(null); setOrigin("DASHBOARD"); setModuleId("all"); }}
+            onClick={() => { setManageView(null); setOrigin("DASHBOARD"); setModuleId("all"); setOpenDepartmentId(null); }}
           >
             <span className="menu-name"><span>Dashboard</span></span>
             <span className="count">{areaCounts.DASHBOARD || 0}</span>
@@ -386,40 +380,42 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
         <p className="menu-label">Departments</p>
         <nav className="menu" aria-label="Departments">
           {departments.map((department) => {
-            const open = Boolean(openMenus[department.id]);
+            const total = Object.values(moduleCounts[department.id] || {}).reduce((sum, value) => sum + value, 0);
+            const listedModules = modules.filter((module) => (moduleCounts[department.id]?.[module.id] || 0) > 0);
+            const open = total > 0 && openDepartmentId === department.id;
             return (
               <div className="menu-group" key={department.id}>
                 <button
                   type="button"
                   className={`menu-parent${origin === department.id && !manageView ? " active" : ""}`}
                   aria-expanded={open}
-                  onClick={() => setOpenMenus((current) => ({ ...current, [department.id]: !current[department.id] }))}
+                  onClick={() => {
+                    if (total === 0) return;
+                    setOpenDepartmentId((current) => (current === department.id ? null : department.id));
+                  }}
                 >
                   <span className="menu-name">
                     <ModuleMark name={department.icon} />
                     <span>{department.name}</span>
                   </span>
-                  <ChevronDown className={`chevron${open ? " open" : ""}`} size={18} aria-hidden="true" />
+                  {total > 0 && <ChevronDown className={`chevron${open ? " open" : ""}`} size={18} aria-hidden="true" />}
                 </button>
                 {open && (
                   <div className="menu-children">
                     <button
                       type="button"
                       className={origin === department.id && moduleId === "all" && !manageView ? "active" : ""}
-                      onClick={() => { setManageView(null); setOrigin(department.id); setModuleId("all"); }}
+                      onClick={() => { setManageView(null); setOrigin(department.id); setModuleId("all"); setOpenDepartmentId(department.id); }}
                     >
                       <span className="menu-name"><span>All</span></span>
-                      <span className="count">
-                        {Object.values(moduleCounts[department.id] || {}).reduce((sum, value) => sum + value, 0)}
-                      </span>
+                      <span className="count">{total}</span>
                     </button>
-                    {modules.length === 0 && <p className="menu-empty">No modules yet</p>}
-                    {modules.map((module) => (
+                    {listedModules.map((module) => (
                       <button
                         type="button"
                         className={origin === department.id && moduleId === module.id && !manageView ? "active" : ""}
                         key={module.id}
-                        onClick={() => { setManageView(null); setOrigin(department.id); setModuleId(module.id); }}
+                        onClick={() => { setManageView(null); setOrigin(department.id); setModuleId(module.id); setOpenDepartmentId(department.id); }}
                       >
                         <span className="menu-name">
                           <ModuleMark name={module.icon} />

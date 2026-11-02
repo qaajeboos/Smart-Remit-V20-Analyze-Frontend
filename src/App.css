@@ -29,13 +29,14 @@
 .brand p { margin: 0; color: var(--muted); font-size: 0.82rem; }
 
 .menu-label {
-  margin: 0 10px 8px;
+  margin: 22px 10px 8px;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
 }
+.menu-label:first-of-type { margin-top: 0; }
 
 .menu { display: flex; flex-direction: column; gap: 4px; }
 
