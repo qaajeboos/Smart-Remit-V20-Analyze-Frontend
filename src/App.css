@@ -554,6 +554,8 @@ footer { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top:
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 }
 .auth-card h1 { margin: 0 0 6px; font-size: 1.45rem; letter-spacing: -0.02em; }
+.denied-card { width: min(560px, 100%); }
+.detected-ip { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.05rem; }
 .auth-card > p { margin: 0 0 18px; color: var(--muted); }
 .auth-card > p.form-error { color: #dc2626; margin: 0 0 12px; }
 .auth-card .primary, .auth-card .ghost { width: 100%; }

@@ -58,14 +58,23 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     let message = "Something went wrong. Try again.";
+    let code = "";
+    let ipAddress = "";
     try {
       const body = await response.json();
       if (body.message) message = body.message;
+      if (body.code) code = body.code;
+      if (body.ipAddress) ipAddress = body.ipAddress;
     } catch {
       // The server did not return JSON.
     }
     const error = new Error(message);
     error.status = response.status;
+    if (code === "IP_NOT_ALLOWED") {
+      error.code = code;
+      error.ipAddress = ipAddress || "Unknown";
+      window.dispatchEvent(new CustomEvent("ip-denied", { detail: { ipAddress: error.ipAddress } }));
+    }
     throw error;
   }
 
@@ -154,6 +163,28 @@ export function revokeDevice(userId, deviceId, pin) {
 
 export function fetchSecurityEvents() {
   return request("/api/auth/security-events");
+}
+
+export function checkAccess() {
+  return request("/api/access");
+}
+
+export function fetchAllowedIps() {
+  return request("/api/auth/allowed-ips");
+}
+
+export function createAllowedIp(payload) {
+  return request("/api/auth/allowed-ips", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAllowedIp(id, pin) {
+  return request(`/api/auth/allowed-ips/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ pin }),
+  });
 }
 
 export function fetchModules() {

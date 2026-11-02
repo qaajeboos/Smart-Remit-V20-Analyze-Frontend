@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   changePin,
+  checkAccess,
+  clearDeviceToken,
   clearSession,
+  createAllowedIp,
   createFeedback,
   createModule,
   updateModule,
   createUser,
+  deleteAllowedIp,
   deleteFeedback,
   deleteUser,
+  fetchAllowedIps,
   fetchDevices,
   fetchSecurityEvents,
   fetchUsers,
@@ -27,7 +32,6 @@ import {
   verifyOtp,
   updateFeedback,
   updateStatus,
-  clearDeviceToken,
   writeDeviceToken,
   writeSession,
 } from "./api";
@@ -92,6 +96,7 @@ function Dashboard({ user, onSignOut }) {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
+  const [networksOpen, setNetworksOpen] = useState(false);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
   const role = user.role || "ADMIN";
@@ -351,6 +356,9 @@ function Dashboard({ user, onSignOut }) {
           {canManageUsers && (
             <button type="button" className="ghost" onClick={() => setSecurityOpen(true)}>Security log</button>
           )}
+          {canManageUsers && (
+            <button type="button" className="ghost" onClick={() => setNetworksOpen(true)}>Allowed networks</button>
+          )}
           <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
         </div>
         {canRegister && (
@@ -526,6 +534,7 @@ function Dashboard({ user, onSignOut }) {
       )}
       {userDialogOpen && <AddUserDialog currentUsername={user.username} onClose={() => setUserDialogOpen(false)} />}
       {securityOpen && <SecurityLogDialog onClose={() => setSecurityOpen(false)} />}
+      {networksOpen && <AllowedNetworksDialog onClose={() => setNetworksOpen(false)} />}
       {editingModule && (
         <EditModuleDialog
           module={editingModule}
@@ -949,18 +958,33 @@ async function readScreenshots(rows) {
 export default function App() {
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
+  const [blockedIp, setBlockedIp] = useState("");
+
+  useEffect(() => {
+    function onDenied(event) {
+      setBlockedIp(event.detail?.ipAddress || "Unknown");
+    }
+    window.addEventListener("ip-denied", onDenied);
+    return () => window.removeEventListener("ip-denied", onDenied);
+  }, []);
+
+  useEffect(() => {
+    checkAccess()
+      .catch((error) => {
+        if (error.code === "IP_NOT_ALLOWED") setBlockedIp(error.ipAddress || "Unknown");
+      })
+      .finally(() => setReady(true));
+  }, []);
 
   useEffect(() => {
     const saved = readSession();
-    if (!saved) {
-      setReady(true);
-      return;
-    }
+    if (!saved) return;
     writeSession(saved);
     fetchMe()
       .then((user) => setSession({ token: saved.token, user }))
-      .catch(() => clearSession())
-      .finally(() => setReady(true));
+      .catch((error) => {
+        if (error.code !== "IP_NOT_ALLOWED") clearSession();
+      });
   }, []);
 
   async function signOut() {
@@ -976,6 +1000,9 @@ export default function App() {
   if (!ready) {
     return <div className="auth-screen"><div className="loading">Loading…</div></div>;
   }
+  if (blockedIp) {
+    return <AccessDenied ip={blockedIp} />;
+  }
   if (!session) {
     return <LoginPage onSuccess={setSession} />;
   }
@@ -989,6 +1016,152 @@ export default function App() {
     );
   }
   return <Dashboard user={session.user} onSignOut={signOut} />;
+}
+
+function AccessDenied({ ip }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyIp() {
+    try {
+      await navigator.clipboard.writeText(ip);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="auth-screen">
+      <section className="auth-card denied-card">
+        <h1>Network Access Denied</h1>
+        <p>
+          Network Access Denied. This system is restricted to authorized locations only.
+          Your current detected IP address is: <strong className="detected-ip">{ip}</strong>.
+          Please copy this IP address and send it to your System Administrator to request access.
+        </p>
+        <button type="button" className="primary" onClick={copyIp}>{copied ? "Copied" : "Copy IP address"}</button>
+      </section>
+    </div>
+  );
+}
+
+function AllowedNetworksDialog({ onClose }) {
+  const [rows, setRows] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [form, setForm] = useState({ userId: "", ipAddress: "", description: "" });
+  const [pending, setPending] = useState(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (pending) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, pending]);
+
+  useEffect(() => {
+    Promise.all([fetchAllowedIps(), fetchUsers()])
+      .then(([addresses, accounts]) => {
+        setRows(addresses);
+        setUsers(accounts);
+      })
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await createAllowedIp({
+        userId: form.userId ? Number(form.userId) : null,
+        ipAddress: form.ipAddress.trim(),
+        description: form.description.trim(),
+      });
+      setRows(await fetchAllowedIps());
+      setForm({ userId: "", ipAddress: "", description: "" });
+      setNotice("The address is allowed.");
+      setSaving(false);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="network-title" onSubmit={submit}>
+        <h3 id="network-title">Allowed networks</h3>
+        <p>Add the public IP address a user sends you when they change location. Leave the user as “Any user” when the address is an office used by more than one person.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {notice && <p className="form-note" role="status">{notice}</p>}
+        <div className="field">
+          <label htmlFor="network-user">User</label>
+          <select id="network-user" value={form.userId} onChange={(event) => setForm({ ...form, userId: event.target.value })}>
+            <option value="">Any user at this location</option>
+            {users.map((account) => (
+              <option key={account.id} value={account.id}>{account.fullName} ({account.username})</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="network-ip">IP address</label>
+          <input
+            id="network-ip"
+            required
+            maxLength={64}
+            value={form.ipAddress}
+            placeholder="203.0.113.10"
+            onChange={(event) => setForm({ ...form, ipAddress: event.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="network-description">Description</label>
+          <input
+            id="network-description"
+            required
+            maxLength={80}
+            value={form.description}
+            placeholder="Office"
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+          />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+          <button type="submit" className="primary" disabled={saving || form.ipAddress.trim().length === 0 || form.description.trim().length === 0}>
+            {saving ? "Saving…" : "Allow this IP"}
+          </button>
+        </div>
+        <div className="user-list">
+          {rows.map((row) => (
+            <div className="user-row" key={row.id}>
+              <span>
+                <strong>{row.ipAddress}</strong>
+                <span>{row.description} · {row.username}</span>
+              </span>
+              <button type="button" className="danger" onClick={() => setPending(row)}>Remove</button>
+            </div>
+          ))}
+        </div>
+      </form>
+      {pending && (
+        <PinConfirmDialog
+          title={`Remove ${pending.ipAddress}`}
+          message="Enter your PIN to remove this address. Browsers at that location will be denied."
+          onClose={() => setPending(null)}
+          onConfirm={async (pin) => {
+            await deleteAllowedIp(pending.id, pin);
+            setRows((current) => current.filter((row) => row.id !== pending.id));
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 function LoginPage({ onSuccess }) {
