@@ -218,7 +218,10 @@ export function createFeedback(payload) {
 
 export async function fetchScreenshot(feedbackId, screenshotId) {
   const response = await fetch(`${API_BASE}/api/feedback/${feedbackId}/screenshots/${screenshotId}`, {
-    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(readDeviceToken() ? { "X-Device-Token": readDeviceToken() } : {}),
+    },
   });
   if (!response.ok) {
     let message = "The screenshot could not be opened.";
