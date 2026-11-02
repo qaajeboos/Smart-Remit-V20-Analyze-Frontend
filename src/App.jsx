@@ -4,7 +4,10 @@ import {
   clearSession,
   createFeedback,
   createModule,
+  createUser,
   deleteFeedback,
+  deleteUser,
+  fetchUsers,
   deleteModule,
   fetchFeedback,
   fetchMe,
@@ -23,6 +26,16 @@ import {
 import { exportFeedbackPdf } from "./exportPdf";
 import { CATEGORIES, ORIGINS, STATUSES, categoryById, originById } from "./labels";
 import "./App.css";
+
+const ROLES = [
+  { id: "ADMIN", label: "Admin" },
+  { id: "DEVELOPER", label: "Developer" },
+  { id: "REPORTER", label: "Reporter" },
+];
+
+function roleLabel(id) {
+  return ROLES.find((role) => role.id === id)?.label || "Admin";
+}
 
 const emptyModuleForm = { name: "", description: "", icon: "" };
 const emptyFeedbackForm = {
@@ -67,9 +80,17 @@ function Dashboard({ user, onSignOut }) {
   const [editing, setEditing] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const role = user.role || "ADMIN";
   const canDelete = user.username === "bulxan";
+  const canManageUsers = user.username === "bulxan";
+  const canCreateModule = role === "ADMIN";
+  const canCreateFeedback = role === "ADMIN" || role === "REPORTER";
+  const canEdit = role === "ADMIN";
+  const canChangeStatus = role === "ADMIN" || role === "DEVELOPER";
+  const canRegister = canCreateModule || canCreateFeedback;
   const collection = originById(origin);
 
   async function load() {
@@ -314,11 +335,17 @@ function Dashboard({ user, onSignOut }) {
         <div className="account">
           <strong>{user.fullName}</strong>
           <span>{user.username}</span>
+          <span>{roleLabel(role)}</span>
+          {canManageUsers && (
+            <button type="button" className="ghost" onClick={() => setUserDialogOpen(true)}>Add user</button>
+          )}
           <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
         </div>
-        <button type="button" className="side-action" onClick={() => setDialogOpen(true)}>
-          Register
-        </button>
+        {canRegister && (
+          <button type="button" className="side-action" onClick={() => setDialogOpen(true)}>
+            Register
+          </button>
+        )}
       </aside>
 
       <main className="main">
@@ -327,9 +354,11 @@ function Dashboard({ user, onSignOut }) {
             <h2>{collection.title}</h2>
             <p>{collection.description}</p>
           </div>
-          <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
-            {collection.register}
-          </button>
+          {canRegister && (
+            <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
+              {canCreateModule ? collection.register : "Register feedback"}
+            </button>
+          )}
         </header>
 
         <section className="status-board" aria-label="Issue status">
@@ -409,11 +438,19 @@ function Dashboard({ user, onSignOut }) {
                   <article className={`item ${item.status}`} key={item.id}>
                     <div className="item-top">
                       <span className="item-meta">
-                        <span className="index">{String(item.itemNumber).padStart(2, "0")}</span>
-                        <span className="created">
-                          Created {formatCreated(item.createdAt)}
-                          {item.createdByName ? ` by ${item.createdByName}` : ""}
+                        <span className="item-meta-line">
+                          <span className="index">{String(item.itemNumber).padStart(2, "0")}</span>
+                          <span className="created">
+                            Created {formatCreated(item.createdAt)}
+                            {item.createdByName ? ` by ${item.createdByName}` : ""}
+                          </span>
                         </span>
+                        {item.updatedByName && <span className="created">Updated by {item.updatedByName}</span>}
+                        {item.statusChangedByName && (
+                          <span className="created">
+                            {STATUSES.find((entry) => entry.id === item.status)?.label} by {item.statusChangedByName}
+                          </span>
+                        )}
                       </span>
                       <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
                     </div>
@@ -427,7 +464,7 @@ function Dashboard({ user, onSignOut }) {
                             key={entry.id}
                             type="button"
                             className={`${entry.id} ${item.status === entry.id ? "active" : ""}`}
-                            disabled={pendingId === item.id}
+                            disabled={!canChangeStatus || pendingId === item.id}
                             onClick={() => changeStatus(item, entry.id)}
                           >
                             {entry.label}
@@ -436,6 +473,7 @@ function Dashboard({ user, onSignOut }) {
                       </div>
                       <ItemActions
                         item={item}
+                        canEdit={canEdit}
                         canDelete={canDelete}
                         onView={() => setViewing(item)}
                         onEdit={() => setEditing(item)}
@@ -462,10 +500,13 @@ function Dashboard({ user, onSignOut }) {
           modules={modules}
           initialModuleId={moduleId === "all" ? modules[0]?.id ?? "" : moduleId}
           initialOrigin={origin}
+          allowModule={canCreateModule}
+          allowStatus={canChangeStatus}
           onClose={() => setDialogOpen(false)}
           onCreated={handleCreated}
         />
       )}
+      {userDialogOpen && <AddUserDialog onClose={() => setUserDialogOpen(false)} />}
       {editing && (
         <EditDialog
           item={editing}
@@ -492,7 +533,7 @@ function Dashboard({ user, onSignOut }) {
   );
 }
 
-function ItemActions({ item, canDelete, onView, onEdit, onDelete }) {
+function ItemActions({ item, canEdit, canDelete, onView, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const hasScreenshots = (item.screenshots?.length || 0) > 0;
@@ -518,6 +559,8 @@ function ItemActions({ item, canDelete, onView, onEdit, onDelete }) {
     action();
   }
 
+  if (!hasScreenshots && !canEdit && !canDelete) return null;
+
   return (
     <div className={`item-menu${open ? " open" : ""}`} ref={rootRef}>
       <button
@@ -536,7 +579,7 @@ function ItemActions({ item, canDelete, onView, onEdit, onDelete }) {
               {item.screenshots.length > 1 ? "View screenshots" : "View screenshot"}
             </button>
           )}
-          <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>
+          {canEdit && <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>}
           {canDelete && (
             <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>Delete</button>
           )}
@@ -546,8 +589,8 @@ function ItemActions({ item, canDelete, onView, onEdit, onDelete }) {
   );
 }
 
-function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCreated }) {
-  const [tab, setTab] = useState(modules.length ? "feedback" : "module");
+function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule = true, allowStatus = true, onClose, onCreated }) {
+  const [tab, setTab] = useState(allowModule && modules.length === 0 ? "module" : "feedback");
   const [moduleForm, setModuleForm] = useState(emptyModuleForm);
   const [feedbackForm, setFeedbackForm] = useState({
     ...emptyFeedbackForm,
@@ -604,7 +647,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
         title: feedbackForm.title.trim(),
         details: feedbackForm.details.trim(),
         category: feedbackForm.category,
-        status: feedbackForm.status,
+        status: allowStatus ? feedbackForm.status : "IN_PROGRESS",
         origin: feedbackForm.origin,
         screenshots,
       });
@@ -619,20 +662,22 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
     <div className="overlay">
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="register-title">
         <h3 id="register-title">Register</h3>
-        <p>Add a module first, then record feedback against it and choose the feedback type.</p>
-        <div className="tabs" role="tablist">
-          <button type="button" className={tab === "module" ? "active" : ""} onClick={() => setTab("module")}>
-            Module
-          </button>
-          <button type="button" className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>
-            Feedback
-          </button>
-        </div>
+        <p>{allowModule ? "Add a module first, then record feedback against it and choose the feedback type." : "Record feedback against a module."}</p>
+        {allowModule && (
+          <div className="tabs" role="tablist">
+            <button type="button" className={tab === "module" ? "active" : ""} onClick={() => setTab("module")}>
+              Module
+            </button>
+            <button type="button" className={tab === "feedback" ? "active" : ""} onClick={() => setTab("feedback")}>
+              Feedback
+            </button>
+          </div>
+        )}
 
         {notice && <p className="form-note">{notice}</p>}
         {formError && <p className="form-error">{formError}</p>}
 
-        {tab === "module" ? (
+        {allowModule && tab === "module" ? (
           <form onSubmit={submitModule}>
             <div className="field">
               <label htmlFor="module-name">Module name</label>
@@ -734,19 +779,21 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, onClose, onCr
                 placeholder="Describe the expected behavior"
               />
             </div>
-            <div className="field">
-              <label htmlFor="feedback-status">Status</label>
-              <select
-                id="feedback-status"
-                value={feedbackForm.status}
-                onChange={(event) => setFeedbackForm({ ...feedbackForm, status: event.target.value })}
-              >
-                {STATUSES.map((entry) => (
-                  <option key={entry.id} value={entry.id}>{entry.label}</option>
-                ))}
-              </select>
-              <p className="field-hint">New feedback starts as In progress. Choose Expected feature only when developers confirm the behavior is intended, so it is not a bug.</p>
-            </div>
+            {allowStatus && (
+              <div className="field">
+                <label htmlFor="feedback-status">Status</label>
+                <select
+                  id="feedback-status"
+                  value={feedbackForm.status}
+                  onChange={(event) => setFeedbackForm({ ...feedbackForm, status: event.target.value })}
+                >
+                  {STATUSES.map((entry) => (
+                    <option key={entry.id} value={entry.id}>{entry.label}</option>
+                  ))}
+                </select>
+                <p className="field-hint">New feedback starts as In progress. Choose Expected feature only when developers confirm the behavior is intended, so it is not a bug.</p>
+              </div>
+            )}
             <ScreenshotEditor rows={rows} setRows={setRows} />
             <div className="dialog-actions">
               <button type="button" className="ghost" onClick={onClose}>Cancel</button>
@@ -1215,6 +1262,121 @@ function EditDialog({ item, modules, onClose, onSaved }) {
           <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function AddUserDialog({ onClose }) {
+  const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER" });
+  const [users, setUsers] = useState([]);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (pendingUser) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, pendingUser]);
+
+  useEffect(() => {
+    fetchUsers()
+      .then(setUsers)
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      await createUser({
+        fullName: form.fullName.trim(),
+        username: form.username.trim(),
+        role: form.role,
+      });
+      setUsers(await fetchUsers());
+      setNotice("The account is ready. The first PIN is 123456. They must choose a new PIN when they sign in.");
+      setForm({ fullName: "", username: "", role: "REPORTER" });
+      setSaving(false);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="user-title" onSubmit={submit}>
+        <h3 id="user-title">Add user</h3>
+        <p>Create an account. Admin can register and edit. Developer can change status only. Reporter can register feedback only.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {notice && <p className="form-note" role="status">{notice}</p>}
+        <div className="field">
+          <label htmlFor="user-full-name">Full name</label>
+          <input
+            id="user-full-name"
+            required
+            maxLength={120}
+            value={form.fullName}
+            onChange={(event) => setForm({ ...form, fullName: event.target.value })}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="user-username">Username</label>
+          <input
+            id="user-username"
+            required
+            maxLength={40}
+            autoComplete="off"
+            value={form.username}
+            onChange={(event) => setForm({ ...form, username: event.target.value })}
+          />
+          <p className="field-hint">Letters and numbers only.</p>
+        </div>
+        <div className="field">
+          <label htmlFor="user-role">Role</label>
+          <select id="user-role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+            {ROLES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Create user"}</button>
+        </div>
+        {users.length > 0 && (
+          <div className="user-list">
+            <p className="field-hint">Accounts. Deleting a user asks for your PIN.</p>
+            {users.map((account) => (
+              <div className="user-row" key={account.id}>
+                <span>
+                  <strong>{account.fullName}</strong>
+                  <span>{account.username} · {roleLabel(account.role)}</span>
+                </span>
+                {account.username !== "bulxan" && (
+                  <button type="button" className="danger" onClick={() => setPendingUser(account)}>Delete</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </form>
+      {pendingUser && (
+        <PinConfirmDialog
+          title={`Delete ${pendingUser.fullName}`}
+          message="Enter your PIN to delete this user. They will no longer be able to sign in."
+          onClose={() => setPendingUser(null)}
+          onConfirm={async (pin) => {
+            await deleteUser(pendingUser.id, pin);
+            setUsers((current) => current.filter((account) => account.id !== pendingUser.id));
+          }}
+        />
+      )}
     </div>
   );
 }

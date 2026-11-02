@@ -98,6 +98,24 @@ export function logout() {
   return request("/api/auth/logout", { method: "POST" });
 }
 
+export function createUser(payload) {
+  return request("/api/auth/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchUsers() {
+  return request("/api/auth/users");
+}
+
+export function deleteUser(id, pin) {
+  return request(`/api/auth/users/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ pin }),
+  });
+}
+
 export function fetchModules() {
   return request("/api/modules");
 }
