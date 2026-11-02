@@ -379,26 +379,23 @@ function Dashboard({ user, onSignOut, onUserUpdated }) {
         </nav>
         <p className="menu-label">Departments</p>
         <nav className="menu" aria-label="Departments">
-          {departments.map((department) => {
+          {departments.filter((department) => Object.values(moduleCounts[department.id] || {}).some((value) => value > 0)).map((department) => {
             const total = Object.values(moduleCounts[department.id] || {}).reduce((sum, value) => sum + value, 0);
             const listedModules = modules.filter((module) => (moduleCounts[department.id]?.[module.id] || 0) > 0);
-            const open = total > 0 && openDepartmentId === department.id;
+            const open = openDepartmentId === department.id;
             return (
               <div className="menu-group" key={department.id}>
                 <button
                   type="button"
                   className={`menu-parent${origin === department.id && !manageView ? " active" : ""}`}
                   aria-expanded={open}
-                  onClick={() => {
-                    if (total === 0) return;
-                    setOpenDepartmentId((current) => (current === department.id ? null : department.id));
-                  }}
+                  onClick={() => setOpenDepartmentId((current) => (current === department.id ? null : department.id))}
                 >
                   <span className="menu-name">
                     <ModuleMark name={department.icon} />
                     <span>{department.name}</span>
                   </span>
-                  {total > 0 && <ChevronDown className={`chevron${open ? " open" : ""}`} size={18} aria-hidden="true" />}
+                  <ChevronDown className={`chevron${open ? " open" : ""}`} size={18} aria-hidden="true" />
                 </button>
                 {open && (
                   <div className="menu-children">
