@@ -244,6 +244,8 @@
 
 .menu-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .menu-name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-sub { padding-left: 28px; }
+.menu-sub .menu-name span:last-child { white-space: normal; }
 
 .count {
   min-width: 24px;

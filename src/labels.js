@@ -15,6 +15,27 @@ export const ORIGINS = [
   },
 ];
 
+export const OPERATIONS_TOPICS = [
+  {
+    id: "FEATURE",
+    label: "New features requested",
+    title: "New features requested",
+    description: "Features the operations department wants added to the new system.",
+  },
+  {
+    id: "BUG",
+    label: "Bugs",
+    title: "Bugs",
+    description: "Defects reported by the operations department.",
+  },
+  {
+    id: "LEGACY_DIFFERENCE",
+    label: "Difference between new system and legacy system",
+    title: "Difference between new system and legacy system",
+    description: "Places where the new system does not match the legacy system.",
+  },
+];
+
 export const CATEGORIES = [
   { id: "LEGACY_PARITY", label: "Legacy Parity", dot: "legacy" },
   { id: "AUTOMATION", label: "Automation", dot: "automation" },
@@ -30,6 +51,10 @@ export const STATUSES = [
   { id: "EXPECTED", label: "Expected feature" },
   { id: "COMPLETED", label: "Completed" },
 ];
+
+export function operationsTopicById(id) {
+  return OPERATIONS_TOPICS.find((topic) => topic.id === id);
+}
 
 export function categoryById(id) {
   return CATEGORIES.find((category) => category.id === id);

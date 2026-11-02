@@ -37,7 +37,7 @@ import {
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
 import { ModuleMark, IconPicker } from "./moduleIcons";
-import { CATEGORIES, ORIGINS, STATUSES, categoryById, originById } from "./labels";
+import { CATEGORIES, OPERATIONS_TOPICS, ORIGINS, STATUSES, categoryById, operationsTopicById, originById } from "./labels";
 import "./App.css";
 
 const ROLES = [
@@ -58,6 +58,7 @@ const emptyFeedbackForm = {
   category: "LEGACY_PARITY",
   status: "IN_PROGRESS",
   origin: "REVIEW",
+  operationsTopic: "FEATURE",
 };
 
 function formatCreated(value) {
@@ -75,6 +76,16 @@ function matchesQuery(item, query) {
   return haystack.includes(query);
 }
 
+function categoryMatches(item, selectedOrigin, selectedCategory) {
+  if (selectedOrigin === "OPERATIONS" || selectedCategory === "all") return true;
+  return item.category === selectedCategory;
+}
+
+function topicMatches(item, selectedOrigin, selectedTopic) {
+  if (selectedOrigin !== "OPERATIONS" || selectedTopic === "all") return true;
+  return item.operationsTopic === selectedTopic;
+}
+
 function itemOrigin(item) {
   return item.origin || "REVIEW";
 }
@@ -86,6 +97,7 @@ function Dashboard({ user, onSignOut }) {
   const [error, setError] = useState("");
   const [moduleId, setModuleId] = useState("all");
   const [origin, setOrigin] = useState("REVIEW");
+  const [operationsTopic, setOperationsTopic] = useState("all");
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
@@ -107,7 +119,8 @@ function Dashboard({ user, onSignOut }) {
   const canEdit = role === "ADMIN";
   const canChangeStatus = role === "ADMIN" || role === "DEVELOPER";
   const canRegister = canCreateModule || canCreateFeedback;
-  const collection = originById(origin);
+  const selectedTopic = origin === "OPERATIONS" ? operationsTopicById(operationsTopic) : null;
+  const collection = selectedTopic || originById(origin);
 
   async function load() {
     const [nextModules, nextItems] = await Promise.all([fetchModules(), fetchFeedback()]);
@@ -134,14 +147,14 @@ function Dashboard({ user, onSignOut }) {
     items.forEach((item) => {
       const categoryOk = category === "all" || item.category === category;
       const statusOk = status === "all" || item.status === status;
-      const listed = categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+      const listed = categoryMatches(item, origin, category) && topicMatches(item, origin, operationsTopic) && statusOk && matchesQuery(item, normalizedQuery);
       if (!listed) return;
       const key = itemOrigin(item);
       if (key === "REVIEW" || key === "OPERATIONS") counts.all += 1;
       if (includesOrigin(origin, key)) counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
     });
     return counts;
-  }, [items, modules, category, status, normalizedQuery, origin]);
+  }, [items, modules, category, status, normalizedQuery, origin, operationsTopic]);
 
   const categoryCounts = useMemo(() => {
     const counts = { all: 0 };
@@ -166,32 +179,44 @@ function Dashboard({ user, onSignOut }) {
     });
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-      const categoryOk = category === "all" || item.category === category;
-      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
+      const categoryOk = categoryMatches(item, origin, category);
+      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && matchesQuery(item, normalizedQuery)) {
         counts[item.status] += 1;
       }
     });
     return counts;
-  }, [items, moduleId, origin, category, normalizedQuery]);
+  }, [items, moduleId, origin, category, normalizedQuery, operationsTopic]);
 
   const collectionCounts = useMemo(() => {
     const counts = { OPERATIONS: 0, PROPOSAL: 0 };
     items.forEach((item) => {
-      const categoryOk = category === "all" || item.category === category;
       const statusOk = status === "all" || item.status === status;
       const key = itemOrigin(item);
-      if ((key === "OPERATIONS" || key === "PROPOSAL") && categoryOk && statusOk && matchesQuery(item, normalizedQuery)) {
+      if ((key === "OPERATIONS" || key === "PROPOSAL") && statusOk && matchesQuery(item, normalizedQuery)) {
         counts[key] += 1;
       }
     });
     return counts;
-  }, [items, category, status, normalizedQuery]);
+  }, [items, status, normalizedQuery]);
+
+  const topicCounts = useMemo(() => {
+    const counts = {};
+    OPERATIONS_TOPICS.forEach((topic) => {
+      counts[topic.id] = 0;
+    });
+    items.forEach((item) => {
+      if (itemOrigin(item) !== "OPERATIONS" || !item.operationsTopic) return;
+      const statusOk = status === "all" || item.status === status;
+      if (statusOk && matchesQuery(item, normalizedQuery)) counts[item.operationsTopic] += 1;
+    });
+    return counts;
+  }, [items, status, normalizedQuery]);
 
   const visible = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-    const categoryOk = category === "all" || item.category === category;
+    const categoryOk = categoryMatches(item, origin, category);
     const statusOk = status === "all" || item.status === status;
-    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
+    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && statusOk && matchesQuery(item, normalizedQuery);
   });
 
   const groups = [];
@@ -230,12 +255,14 @@ function Dashboard({ user, onSignOut }) {
     }
   }
 
-  const typeLabel = category === "all" ? "All feedback" : categoryById(category).label;
+  const typeLabel = selectedTopic
+    ? selectedTopic.label
+    : (category === "all" ? "All feedback" : categoryById(category).label);
   const moduleLabel = selectedModule ? selectedModule.name : "All modules";
   const printable = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-    const categoryOk = category === "all" || item.category === category;
-    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
+    const categoryOk = categoryMatches(item, origin, category);
+    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && matchesQuery(item, normalizedQuery);
   });
   const printableGroups = [];
   printable.forEach((item) => {
@@ -277,6 +304,7 @@ function Dashboard({ user, onSignOut }) {
     }
     setItems((current) => [...current, created.item]);
     setOrigin(itemOrigin(created.item));
+    setOperationsTopic(created.item.operationsTopic || "all");
     setModuleId(created.item.moduleId);
     setCategory(created.item.category);
     setStatus(created.item.status);
@@ -308,7 +336,7 @@ function Dashboard({ user, onSignOut }) {
           <button
             type="button"
             className={origin === "REVIEW" && moduleId === "all" ? "active" : ""}
-            onClick={() => { setOrigin("REVIEW"); setModuleId("all"); }}
+            onClick={() => { setOrigin("REVIEW"); setModuleId("all"); setOperationsTopic("all"); }}
           >
             <span className="menu-name"><span>All modules</span></span>
             <span className="count">{moduleCounts.all || 0}</span>
@@ -335,15 +363,27 @@ function Dashboard({ user, onSignOut }) {
         <p className="menu-label">Records</p>
         <nav className="menu" aria-label="Other records">
           {ORIGINS.filter((entry) => entry.id !== "REVIEW").map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              className={origin === entry.id ? "active" : ""}
-              onClick={() => { setOrigin(entry.id); setModuleId("all"); }}
-            >
-              <span className="menu-name"><span>{entry.label}</span></span>
-              <span className="count">{collectionCounts[entry.id] || 0}</span>
-            </button>
+            <div key={entry.id}>
+              <button
+                type="button"
+                className={origin === entry.id && operationsTopic === "all" ? "active" : ""}
+                onClick={() => { setOrigin(entry.id); setOperationsTopic("all"); setModuleId("all"); }}
+              >
+                <span className="menu-name"><span>{entry.label}</span></span>
+                <span className="count">{collectionCounts[entry.id] || 0}</span>
+              </button>
+              {entry.id === "OPERATIONS" && OPERATIONS_TOPICS.map((topic) => (
+                <button
+                  key={topic.id}
+                  type="button"
+                  className={`menu-sub ${origin === "OPERATIONS" && operationsTopic === topic.id ? "active" : ""}`}
+                  onClick={() => { setOrigin("OPERATIONS"); setOperationsTopic(topic.id); setModuleId("all"); }}
+                >
+                  <span className="menu-name"><span>{topic.label}</span></span>
+                  <span className="count">{topicCounts[topic.id] || 0}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="account">
@@ -404,6 +444,7 @@ function Dashboard({ user, onSignOut }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          {origin !== "OPERATIONS" && (
           <div className="filters" role="group" aria-label="Category filter">
             <button type="button" className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>
               All feedback
@@ -422,6 +463,7 @@ function Dashboard({ user, onSignOut }) {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         <div className="result-bar">
@@ -478,7 +520,11 @@ function Dashboard({ user, onSignOut }) {
                             View Screenshot
                           </button>
                         )}
-                        <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
+                        {item.operationsTopic ? (
+                          <span className="tag inquiry">{operationsTopicById(item.operationsTopic)?.label || item.operationsTopic}</span>
+                        ) : (
+                          <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
+                        )}
                       </span>
                     </div>
                     <p>
@@ -526,6 +572,7 @@ function Dashboard({ user, onSignOut }) {
           modules={modules}
           initialModuleId={moduleId === "all" ? modules[0]?.id ?? "" : moduleId}
           initialOrigin={origin}
+          initialTopic={operationsTopic === "all" ? "FEATURE" : operationsTopic}
           allowModule={canCreateModule}
           allowStatus={canChangeStatus}
           onClose={() => setDialogOpen(false)}
@@ -693,13 +740,14 @@ function ItemActions({ item, canEdit, canDelete, onEdit, onDelete }) {
   );
 }
 
-function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule = true, allowStatus = true, onClose, onCreated }) {
+function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic = "FEATURE", allowModule = true, allowStatus = true, onClose, onCreated }) {
   const [tab, setTab] = useState(allowModule && modules.length === 0 ? "module" : "feedback");
   const [moduleForm, setModuleForm] = useState(emptyModuleForm);
   const [feedbackForm, setFeedbackForm] = useState({
     ...emptyFeedbackForm,
     moduleId: initialModuleId === "" ? "" : String(initialModuleId),
     origin: initialOrigin || "REVIEW",
+    operationsTopic: initialTopic,
   });
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
@@ -750,9 +798,10 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule =
         moduleId: Number(feedbackForm.moduleId),
         title: feedbackForm.title.trim(),
         details: feedbackForm.details.trim(),
-        category: feedbackForm.category,
+        category: feedbackForm.origin === "OPERATIONS" ? "INQUIRY" : feedbackForm.category,
         status: allowStatus ? feedbackForm.status : "IN_PROGRESS",
         origin: feedbackForm.origin,
+        operationsTopic: feedbackForm.origin === "OPERATIONS" ? feedbackForm.operationsTopic : null,
         screenshots,
       });
       onCreated({ kind: "feedback", item });
@@ -836,13 +885,32 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule =
               <select
                 id="feedback-record"
                 value={feedbackForm.origin}
-                onChange={(event) => setFeedbackForm({ ...feedbackForm, origin: event.target.value })}
+                onChange={(event) => setFeedbackForm({
+                  ...feedbackForm,
+                  origin: event.target.value,
+                  operationsTopic: event.target.value === "OPERATIONS" ? (feedbackForm.operationsTopic || "FEATURE") : feedbackForm.operationsTopic,
+                })}
               >
                 {ORIGINS.map((entry) => (
                   <option key={entry.id} value={entry.id}>{entry.label}</option>
                 ))}
               </select>
             </div>
+            {feedbackForm.origin === "OPERATIONS" ? (
+              <div className="field">
+                <label htmlFor="feedback-topic">Operations topic</label>
+                <select
+                  id="feedback-topic"
+                  required
+                  value={feedbackForm.operationsTopic}
+                  onChange={(event) => setFeedbackForm({ ...feedbackForm, operationsTopic: event.target.value })}
+                >
+                  {OPERATIONS_TOPICS.map((entry) => (
+                    <option key={entry.id} value={entry.id}>{entry.label}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
             <div className="field">
               <label htmlFor="feedback-type">Feedback type</label>
               <select
@@ -856,6 +924,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, allowModule =
                 ))}
               </select>
             </div>
+            )}
             <div className="field">
               <label htmlFor="feedback-title">Title</label>
               <input
@@ -1557,6 +1626,7 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     moduleId: String(item.moduleId),
     origin: itemOrigin(item),
     category: item.category,
+    operationsTopic: item.operationsTopic || "FEATURE",
     title: item.title,
     details: item.details,
     status: item.status,
@@ -1583,7 +1653,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
       const updated = await updateFeedback(item.id, {
         moduleId: Number(form.moduleId),
         origin: form.origin,
-        category: form.category,
+        operationsTopic: form.origin === "OPERATIONS" ? form.operationsTopic : null,
+        category: form.origin === "OPERATIONS" ? "INQUIRY" : form.category,
         title: form.title.trim(),
         details: form.details.trim(),
         status: form.status,
@@ -1616,10 +1687,21 @@ function EditDialog({ item, modules, onClose, onSaved }) {
           </select>
         </div>
         <div className="field">
-          <label htmlFor="edit-type">Feedback type</label>
-          <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
-            {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-          </select>
+          {form.origin === "OPERATIONS" ? (
+            <>
+              <label htmlFor="edit-topic">Operations topic</label>
+              <select id="edit-topic" required value={form.operationsTopic} onChange={(event) => setForm({ ...form, operationsTopic: event.target.value })}>
+                {OPERATIONS_TOPICS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <label htmlFor="edit-type">Feedback type</label>
+              <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+                {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+              </select>
+            </>
+          )}
         </div>
         <div className="field">
           <label htmlFor="edit-title">Title</label>
