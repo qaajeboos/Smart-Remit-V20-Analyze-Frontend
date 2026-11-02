@@ -8,6 +8,8 @@ import {
   createUser,
   deleteFeedback,
   deleteUser,
+  fetchDevices,
+  fetchSecurityEvents,
   fetchUsers,
   deleteModule,
   fetchFeedback,
@@ -17,11 +19,16 @@ import {
   login,
   logout,
   readSession,
+  readDeviceToken,
+  registerDevice,
   requestOtp,
   resetPinWithOtp,
+  revokeDevice,
   verifyOtp,
   updateFeedback,
   updateStatus,
+  clearDeviceToken,
+  writeDeviceToken,
   writeSession,
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
@@ -84,6 +91,7 @@ function Dashboard({ user, onSignOut }) {
   const [viewing, setViewing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
   const role = user.role || "ADMIN";
@@ -340,6 +348,9 @@ function Dashboard({ user, onSignOut }) {
           {canManageUsers && (
             <button type="button" className="ghost" onClick={() => setUserDialogOpen(true)}>Add user</button>
           )}
+          {canManageUsers && (
+            <button type="button" className="ghost" onClick={() => setSecurityOpen(true)}>Security log</button>
+          )}
           <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
         </div>
         {canRegister && (
@@ -351,7 +362,7 @@ function Dashboard({ user, onSignOut }) {
 
       <main className="main">
         <header className="main-header">
-          <div>
+        <div>
             <h2>{collection.title}</h2>
             <p>{collection.description}</p>
           </div>
@@ -468,15 +479,15 @@ function Dashboard({ user, onSignOut }) {
                     <div className="item-actions">
                       <div className="status-switch" role="group" aria-label={`Status for ${item.title}`}>
                         {STATUSES.map((entry) => (
-                          <button
+        <button
                             key={entry.id}
-                            type="button"
+          type="button"
                             className={`${entry.id} ${item.status === entry.id ? "active" : ""}`}
                             disabled={!canChangeStatus || pendingId === item.id}
                             onClick={() => changeStatus(item, entry.id)}
-                          >
+        >
                             {entry.label}
-                          </button>
+        </button>
                         ))}
                       </div>
                       <ItemActions
@@ -491,7 +502,7 @@ function Dashboard({ user, onSignOut }) {
                 );
               })}
             </div>
-          </section>
+      </section>
           );
         })}
 
@@ -513,7 +524,8 @@ function Dashboard({ user, onSignOut }) {
           onCreated={handleCreated}
         />
       )}
-      {userDialogOpen && <AddUserDialog onClose={() => setUserDialogOpen(false)} />}
+      {userDialogOpen && <AddUserDialog currentUsername={user.username} onClose={() => setUserDialogOpen(false)} />}
+      {securityOpen && <SecurityLogDialog onClose={() => setSecurityOpen(false)} />}
       {editingModule && (
         <EditModuleDialog
           module={editingModule}
@@ -551,7 +563,7 @@ function Dashboard({ user, onSignOut }) {
           onConfirm={confirmDelete}
         />
       )}
-    </div>
+        </div>
   );
 }
 
@@ -604,7 +616,7 @@ function ModuleActions({ name, canEdit, canDelete, onEdit, onDelete }) {
             <button type="button" role="menuitem" onClick={() => choose(onEdit)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M4 20h4l10.5-10.5a2 2 0 0 0 0-3L16.5 4.5a2 2 0 0 0-3 0L3 15v5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
+                </svg>
               Edit
             </button>
           )}
@@ -612,7 +624,7 @@ function ModuleActions({ name, canEdit, canDelete, onEdit, onDelete }) {
             <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>
               <svg className="delete-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13h8l1-13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+                </svg>
               Delete
             </button>
           )}
@@ -990,6 +1002,8 @@ function LoginPage({ onSuccess }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deviceReady, setDeviceReady] = useState(() => readDeviceToken().length > 0);
+  const deviceFileRef = useRef(null);
 
   async function submit(event) {
     event.preventDefault();
@@ -1073,14 +1087,36 @@ function LoginPage({ onSuccess }) {
     setResetToken("");
   }
 
+  async function importDeviceFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError("");
+    setNotice("");
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (parsed?.product !== "smart-v2-device-key" || typeof parsed.deviceToken !== "string" || parsed.deviceToken.trim().length < 20) {
+        throw new Error("This file is not a device key.");
+      }
+      writeDeviceToken(parsed.deviceToken.trim());
+      setDeviceReady(true);
+      setNotice(parsed.deviceName ? `Device key imported for ${parsed.deviceName}.` : "Device key imported.");
+    } catch (importError) {
+      setError(importError.message || "This file is not a device key.");
+    }
+  }
+
   return (
     <div className="auth-screen">
       {step === "login" && (
         <form className="auth-card" onSubmit={submit}>
           <h1>Smart V2 Review</h1>
-          <p>Sign in with your username and PIN.</p>
+          <p>Sign in with your username and PIN from a browser that has its device key.</p>
           {error && <p className="form-error" role="alert">{error}</p>}
           {notice && <p className="form-note">{notice}</p>}
+          <p className={deviceReady ? "form-note" : "form-error"}>
+            {deviceReady ? "Device key is installed on this browser." : "No device key is installed on this browser."}
+          </p>
           <div className="field">
             <label htmlFor="username">Username</label>
             <input
@@ -1110,6 +1146,30 @@ function LoginPage({ onSuccess }) {
           <button type="button" className="text-link" onClick={startForgot} disabled={saving}>
             Forgot PIN
           </button>
+          <input
+            ref={deviceFileRef}
+            className="hidden-file"
+            type="file"
+            accept="application/json,.json"
+            onChange={importDeviceFile}
+          />
+          <button type="button" className="text-link" onClick={() => deviceFileRef.current?.click()}>
+            Import device key
+          </button>
+          {deviceReady && (
+            <button
+              type="button"
+              className="text-link"
+              onClick={() => {
+                clearDeviceToken();
+                setDeviceReady(false);
+                setNotice("Device key removed from this browser.");
+              }}
+            >
+              Remove device key
+            </button>
+          )}
+          <p className="field-hint">A browser cannot read a computer serial number. Ask an admin to register this browser and send you the device key file. Import that file once, then sign in.</p>
         </form>
       )}
 
@@ -1419,22 +1479,23 @@ function EditDialog({ item, modules, onClose, onSaved }) {
   );
 }
 
-function AddUserDialog({ onClose }) {
+function AddUserDialog({ currentUsername, onClose }) {
   const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER" });
   const [users, setUsers] = useState([]);
   const [pendingUser, setPendingUser] = useState(null);
+  const [deviceUser, setDeviceUser] = useState(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (pendingUser) return undefined;
+    if (pendingUser || deviceUser) return undefined;
     function onKey(event) {
       if (event.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, pendingUser]);
+  }, [onClose, pendingUser, deviceUser]);
 
   useEffect(() => {
     fetchUsers()
@@ -1511,9 +1572,12 @@ function AddUserDialog({ onClose }) {
                   <strong>{account.fullName}</strong>
                   <span>{account.username} · {roleLabel(account.role)}</span>
                 </span>
-                {account.username !== "bulxan" && (
-                  <button type="button" className="danger" onClick={() => setPendingUser(account)}>Delete</button>
-                )}
+                <span className="user-actions">
+                  <button type="button" className="ghost" onClick={() => setDeviceUser(account)}>Device</button>
+                  {account.username !== "bulxan" && (
+                    <button type="button" className="danger" onClick={() => setPendingUser(account)}>Delete</button>
+                  )}
+                </span>
               </div>
             ))}
           </div>
@@ -1530,6 +1594,194 @@ function AddUserDialog({ onClose }) {
           }}
         />
       )}
+      {deviceUser && (
+        <DeviceDialog
+          account={deviceUser}
+          currentUsername={currentUsername}
+          onClose={() => setDeviceUser(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function downloadDeviceKey(created) {
+  const payload = {
+    product: "smart-v2-device-key",
+    username: created.username,
+    deviceName: created.deviceName,
+    deviceToken: created.deviceToken,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `smart-v2-device-${created.username}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function DeviceDialog({ account, currentUsername, onClose }) {
+  const [devices, setDevices] = useState([]);
+  const [deviceName, setDeviceName] = useState("");
+  const [pendingDevice, setPendingDevice] = useState(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (pendingDevice) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, pendingDevice]);
+
+  useEffect(() => {
+    fetchDevices(account.id)
+      .then(setDevices)
+      .catch((loadError) => setError(loadError.message));
+  }, [account.id]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const created = await registerDevice(account.id, deviceName.trim());
+      if (created.username === currentUsername) writeDeviceToken(created.deviceToken);
+      downloadDeviceKey(created);
+      setDevices(await fetchDevices(account.id));
+      setDeviceName("");
+      setNotice("The device key file was downloaded. It is shown only once. Send that file to the user and have them import it on the sign-in page.");
+      setSaving(false);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="device-title" onSubmit={submit}>
+        <h3 id="device-title">Device for {account.fullName}</h3>
+        <p>Name this browser or computer, then download the device key. The user imports that file before signing in. A browser cannot read a hardware serial number, so this key is the registered device identity.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {notice && <p className="form-note" role="status">{notice}</p>}
+        <div className="field">
+          <label htmlFor="device-name">Device name</label>
+          <input
+            id="device-name"
+            required
+            maxLength={80}
+            value={deviceName}
+            placeholder="Office laptop"
+            onChange={(event) => setDeviceName(event.target.value)}
+          />
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+          <button type="submit" className="primary" disabled={saving || deviceName.trim().length === 0}>
+            {saving ? "Creating…" : "Create device key"}
+          </button>
+        </div>
+        <div className="user-list">
+          {devices.length === 0 && (
+            <p className="field-hint">
+              {account.username === "bulxan"
+                ? "No device key yet. This account can still sign in until the first key is created."
+                : "No device key yet. This account cannot sign in until you create one."}
+            </p>
+          )}
+          {devices.map((device) => (
+            <div className="user-row" key={device.id}>
+              <span>
+                <strong>{device.deviceName}</strong>
+                <span>{new Date(device.registeredAt).toLocaleString()}</span>
+              </span>
+              <button type="button" className="danger" onClick={() => setPendingDevice(device)}>Remove</button>
+            </div>
+          ))}
+        </div>
+      </form>
+      {pendingDevice && (
+        <PinConfirmDialog
+          title={`Remove ${pendingDevice.deviceName}`}
+          message="Enter your PIN to remove this device. Sign-in from that browser will stop."
+          onClose={() => setPendingDevice(null)}
+          onConfirm={async (pin) => {
+            await revokeDevice(account.id, pendingDevice.id, pin);
+            setDevices((current) => current.filter((device) => device.id !== pendingDevice.id));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SecurityLogDialog({ onClose }) {
+  const [events, setEvents] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    fetchSecurityEvents()
+      .then(setEvents)
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+
+  return (
+    <div className="overlay" onMouseDown={onClose}>
+      <div className="dialog security-log" role="dialog" aria-modal="true" aria-labelledby="security-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="dialog-head">
+          <div>
+            <h3 id="security-title">Security log</h3>
+            <p>Rejected sign-ins, unregistered devices, rejected PINs, and actions a role is not allowed to perform.</p>
+          </div>
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        {events.length === 0 && !error && <p className="field-hint">No security events yet.</p>}
+        {events.length > 0 && (
+          <div className="log-table-wrap">
+            <table className="log-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Action</th>
+                  <th>Result</th>
+                  <th>IP address</th>
+                  <th>System</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((event) => (
+                  <tr key={event.id}>
+                    <td>{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</td>
+                    <td>{event.username || "Unknown"}</td>
+                    <td>{event.action}</td>
+                    <td>{event.outcome}</td>
+                    <td>{event.ipAddress || "Unknown"}</td>
+                    <td>{event.operatingSystem || "Unknown"}</td>
+                    <td>{event.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1729,7 +1981,7 @@ function ScreenshotBrowser({ item, onClose }) {
               </button>
             </li>
           ))}
-        </ul>
+          </ul>
         <div className="dialog-actions">
           <button type="button" className="ghost" onClick={onClose}>Close</button>
         </div>

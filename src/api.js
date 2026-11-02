@@ -4,7 +4,24 @@ const API_BASE = (
 ).replace(/\/$/, "");
 
 const STORAGE_KEY = "smart-v2-auth";
+const DEVICE_KEY = "smart-v2-device";
 let authToken = null;
+
+export function readDeviceToken() {
+  try {
+    return localStorage.getItem(DEVICE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeDeviceToken(token) {
+  localStorage.setItem(DEVICE_KEY, token);
+}
+
+export function clearDeviceToken() {
+  localStorage.removeItem(DEVICE_KEY);
+}
 
 export function readSession() {
   try {
@@ -34,6 +51,7 @@ async function request(path, options = {}) {
     headers: {
       "Content-Type": "application/json",
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(readDeviceToken() ? { "X-Device-Token": readDeviceToken() } : {}),
       ...(options.headers || {}),
     },
   });
@@ -114,6 +132,28 @@ export function deleteUser(id, pin) {
     method: "DELETE",
     body: JSON.stringify({ pin }),
   });
+}
+
+export function fetchDevices(userId) {
+  return request(`/api/auth/users/${userId}/devices`);
+}
+
+export function registerDevice(userId, deviceName) {
+  return request(`/api/auth/users/${userId}/devices`, {
+    method: "POST",
+    body: JSON.stringify({ deviceName }),
+  });
+}
+
+export function revokeDevice(userId, deviceId, pin) {
+  return request(`/api/auth/users/${userId}/devices/${deviceId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export function fetchSecurityEvents() {
+  return request("/api/auth/security-events");
 }
 
 export function fetchModules() {
