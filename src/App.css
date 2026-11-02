@@ -417,6 +417,7 @@
 .item p { margin: 0; }
 .highlight { font-weight: 600; }
 
+.item-tags { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .tag {
   display: inline-block;
   font-size: 0.75rem;
@@ -425,6 +426,7 @@
   font-weight: 600;
   white-space: nowrap;
 }
+.tag.shot { background: #eff6ff; color: #1d4ed8; }
 .tag.legacy { background: #fef3c7; color: #92400e; }
 .tag.automation { background: #d1fae5; color: #065f46; }
 .tag.ux { background: #e0e7ff; color: #3730a3; }

@@ -452,7 +452,12 @@ function Dashboard({ user, onSignOut }) {
                           </span>
                         )}
                       </span>
-                      <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
+                      <span className="item-tags">
+                        {((item.screenshots?.length || 0) > 0 || item.hasScreenshot) && (
+                          <span className="tag shot">Screenshot attached</span>
+                        )}
+                        <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
+                      </span>
                     </div>
                     <p>
                       <span className="highlight">{item.title}:</span> {item.details}
