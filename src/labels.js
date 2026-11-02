@@ -1,38 +1,17 @@
 export const ORIGINS = [
   {
     id: "REVIEW",
-    label: "System review",
-    title: "Smart V2 System Review",
-    description: "Functional and UI/UX feedback compared with the legacy system. Choose a module, filter by type, and track whether each issue is in progress, an expected feature, or completed.",
+    label: "IT",
+    title: "IT",
+    description: "Feedback reported by the IT department. Choose a module, filter by type, and track whether each issue is in progress, an expected feature, or completed.",
     register: "Register feedback",
   },
   {
     id: "OPERATIONS",
-    label: "From Operations",
-    title: "From Operations",
-    description: "Comments and feedback recorded from the operations department about the new system.",
-    register: "Register comment",
-  },
-];
-
-export const OPERATIONS_TOPICS = [
-  {
-    id: "FEATURE",
-    label: "New features requested",
-    title: "New features requested",
-    description: "Features the operations department wants added to the new system.",
-  },
-  {
-    id: "BUG",
-    label: "Bugs",
-    title: "Bugs",
-    description: "Defects reported by the operations department.",
-  },
-  {
-    id: "LEGACY_DIFFERENCE",
-    label: "Difference between new system and legacy system",
-    title: "Difference between new system and legacy system",
-    description: "Places where the new system does not match the legacy system.",
+    label: "Operations",
+    title: "Operations",
+    description: "Feedback reported by the operations department. Choose a module to see that department’s records.",
+    register: "Register feedback",
   },
 ];
 
@@ -51,10 +30,6 @@ export const STATUSES = [
   { id: "EXPECTED", label: "Expected feature" },
   { id: "COMPLETED", label: "Completed" },
 ];
-
-export function operationsTopicById(id) {
-  return OPERATIONS_TOPICS.find((topic) => topic.id === id);
-}
 
 export function categoryById(id) {
   return CATEGORIES.find((category) => category.id === id);

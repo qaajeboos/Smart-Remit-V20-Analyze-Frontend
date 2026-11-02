@@ -642,6 +642,91 @@ footer { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top:
   color: #1d4ed8;
 }
 
+.manage-action {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+}
+.manage-action.active,
+.manage-action:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: #bfdbfe;
+}
+
+.header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.profile-menu { position: relative; }
+.avatar-button {
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.profile-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 230px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+.profile-popover strong { font-size: 0.95rem; }
+.profile-popover span { color: var(--muted); font-size: 0.8rem; }
+.profile-popover button {
+  margin-top: 8px;
+  padding: 8px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+input[readonly] { background: var(--bg); color: var(--muted); }
+
+.manage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.manage-grid button {
+  min-height: 96px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.manage-grid button:hover { border-color: #93c5fd; background: #eff6ff; }
+.manage-signout { color: #b91c1c; }
+.page-toolbar { display: flex; justify-content: space-between; gap: 12px; margin: 18px 0 16px; }
+.page-list { margin-top: 0; }
+.user-row:has(.item-menu.open) { position: relative; z-index: 5; }
+
 @media (max-width: 860px) {
   .app { flex-direction: column; }
   .sidebar {

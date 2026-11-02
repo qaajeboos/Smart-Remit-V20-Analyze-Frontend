@@ -132,6 +132,20 @@ export function createUser(payload) {
   });
 }
 
+export function updateProfile(fullName) {
+  return request("/api/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify({ fullName }),
+  });
+}
+
+export function updateUser(id, payload) {
+  return request(`/api/auth/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function fetchUsers() {
   return request("/api/auth/users");
 }

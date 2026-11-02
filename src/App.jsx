@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Settings } from "lucide-react";
 import {
   changePin,
   checkAccess,
@@ -31,13 +32,15 @@ import {
   revokeDevice,
   verifyOtp,
   updateFeedback,
+  updateProfile,
   updateStatus,
+  updateUser,
   writeDeviceToken,
   writeSession,
 } from "./api";
 import { exportFeedbackPdf } from "./exportPdf";
 import { ModuleMark, IconPicker } from "./moduleIcons";
-import { CATEGORIES, OPERATIONS_TOPICS, ORIGINS, STATUSES, categoryById, operationsTopicById, originById } from "./labels";
+import { CATEGORIES, STATUSES, categoryById, originById } from "./labels";
 import "./App.css";
 
 const ROLES = [
@@ -50,6 +53,26 @@ function roleLabel(id) {
   return ROLES.find((role) => role.id === id)?.label || "Admin";
 }
 
+const DEPARTMENTS = [
+  { id: "IT", label: "IT" },
+  { id: "OPERATIONS", label: "Operations" },
+];
+
+function departmentLabel(id) {
+  return DEPARTMENTS.find((entry) => entry.id === id)?.label || "IT";
+}
+
+function initials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+function byNewest(left, right) {
+  return String(right?.createdAt || "").localeCompare(String(left?.createdAt || ""));
+}
+
 const emptyModuleForm = { name: "", description: "", icon: "" };
 const emptyFeedbackForm = {
   moduleId: "",
@@ -58,7 +81,6 @@ const emptyFeedbackForm = {
   category: "LEGACY_PARITY",
   status: "IN_PROGRESS",
   origin: "REVIEW",
-  operationsTopic: "FEATURE",
 };
 
 function formatCreated(value) {
@@ -76,28 +98,22 @@ function matchesQuery(item, query) {
   return haystack.includes(query);
 }
 
-function categoryMatches(item, selectedOrigin, selectedCategory) {
-  if (selectedOrigin === "OPERATIONS" || selectedCategory === "all") return true;
+function categoryMatches(item, selectedCategory) {
+  if (selectedCategory === "all") return true;
   return item.category === selectedCategory;
-}
-
-function topicMatches(item, selectedOrigin, selectedTopic) {
-  if (selectedOrigin !== "OPERATIONS" || selectedTopic === "all") return true;
-  return item.operationsTopic === selectedTopic;
 }
 
 function itemOrigin(item) {
   return item.origin || "REVIEW";
 }
 
-function Dashboard({ user, onSignOut }) {
+function Dashboard({ user, onSignOut, onUserUpdated }) {
   const [modules, setModules] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [moduleId, setModuleId] = useState("all");
-  const [origin, setOrigin] = useState("REVIEW");
-  const [operationsTopic, setOperationsTopic] = useState("all");
+  const [origin, setOrigin] = useState("DASHBOARD");
   const [category, setCategory] = useState("all");
   const [status, setStatus] = useState("all");
   const [query, setQuery] = useState("");
@@ -106,12 +122,14 @@ function Dashboard({ user, onSignOut }) {
   const [editingModule, setEditingModule] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [manageView, setManageView] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [networksOpen, setNetworksOpen] = useState(false);
   const [pendingId, setPendingId] = useState(null);
   const [exporting, setExporting] = useState(false);
   const role = user.role || "ADMIN";
+  const department = user.department === "OPERATIONS" ? "OPERATIONS" : "IT";
   const canDelete = user.username === "bulxan";
   const canManageUsers = user.username === "bulxan";
   const canCreateModule = role === "ADMIN";
@@ -119,8 +137,14 @@ function Dashboard({ user, onSignOut }) {
   const canEdit = role === "ADMIN";
   const canChangeStatus = role === "ADMIN" || role === "DEVELOPER";
   const canRegister = canCreateModule || canCreateFeedback;
-  const selectedTopic = origin === "OPERATIONS" ? operationsTopicById(operationsTopic) : null;
-  const collection = selectedTopic || originById(origin);
+  const collection = origin === "DASHBOARD"
+    ? {
+        title: "Dashboard",
+        label: "all feedback",
+        description: "All feedback, with the newest record first.",
+        register: "Register feedback",
+      }
+    : originById(origin === "REVIEW" ? "REVIEW" : "OPERATIONS");
 
   async function load() {
     const [nextModules, nextItems] = await Promise.all([fetchModules(), fetchFeedback()]);
@@ -140,21 +164,33 @@ function Dashboard({ user, onSignOut }) {
   const normalizedQuery = query.trim().toLowerCase();
 
   const moduleCounts = useMemo(() => {
-    const counts = { all: 0 };
+    const counts = { REVIEW: {}, OPERATIONS: {} };
     modules.forEach((module) => {
-      counts[module.id] = 0;
+      counts.REVIEW[module.id] = 0;
+      counts.OPERATIONS[module.id] = 0;
     });
     items.forEach((item) => {
-      const categoryOk = category === "all" || item.category === category;
-      const statusOk = status === "all" || item.status === status;
-      const listed = categoryMatches(item, origin, category) && topicMatches(item, origin, operationsTopic) && statusOk && matchesQuery(item, normalizedQuery);
-      if (!listed) return;
       const key = itemOrigin(item);
-      if (key === "REVIEW" || key === "OPERATIONS") counts.all += 1;
-      if (includesOrigin(origin, key)) counts[item.moduleId] = (counts[item.moduleId] || 0) + 1;
+      if (key !== "REVIEW" && key !== "OPERATIONS") return;
+      const statusOk = status === "all" || item.status === status;
+      if (!statusOk || !matchesQuery(item, normalizedQuery)) return;
+      counts[key][item.moduleId] = (counts[key][item.moduleId] || 0) + 1;
     });
     return counts;
-  }, [items, modules, category, status, normalizedQuery, origin, operationsTopic]);
+  }, [items, modules, status, normalizedQuery]);
+
+  const areaCounts = useMemo(() => {
+    const counts = { DASHBOARD: 0, REVIEW: 0, OPERATIONS: 0 };
+    items.forEach((item) => {
+      const statusOk = status === "all" || item.status === status;
+      if (!statusOk || !matchesQuery(item, normalizedQuery)) return;
+      const key = itemOrigin(item);
+      if (key === "REVIEW" || key === "OPERATIONS") counts.DASHBOARD += 1;
+      if (key === "REVIEW") counts.REVIEW += 1;
+      if (key === "OPERATIONS") counts.OPERATIONS += 1;
+    });
+    return counts;
+  }, [items, status, normalizedQuery]);
 
   const categoryCounts = useMemo(() => {
     const counts = { all: 0 };
@@ -179,67 +215,56 @@ function Dashboard({ user, onSignOut }) {
     });
     items.forEach((item) => {
       const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-      const categoryOk = categoryMatches(item, origin, category);
-      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && matchesQuery(item, normalizedQuery)) {
+      const categoryOk = categoryMatches(item, category);
+      if (includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery)) {
         counts[item.status] += 1;
       }
     });
     return counts;
-  }, [items, moduleId, origin, category, normalizedQuery, operationsTopic]);
-
-  const collectionCounts = useMemo(() => {
-    const counts = { OPERATIONS: 0, PROPOSAL: 0 };
-    items.forEach((item) => {
-      const statusOk = status === "all" || item.status === status;
-      const key = itemOrigin(item);
-      if ((key === "OPERATIONS" || key === "PROPOSAL") && statusOk && matchesQuery(item, normalizedQuery)) {
-        counts[key] += 1;
-      }
-    });
-    return counts;
-  }, [items, status, normalizedQuery]);
-
-  const topicCounts = useMemo(() => {
-    const counts = {};
-    OPERATIONS_TOPICS.forEach((topic) => {
-      counts[topic.id] = 0;
-    });
-    items.forEach((item) => {
-      if (itemOrigin(item) !== "OPERATIONS" || !item.operationsTopic) return;
-      const statusOk = status === "all" || item.status === status;
-      if (statusOk && matchesQuery(item, normalizedQuery)) counts[item.operationsTopic] += 1;
-    });
-    return counts;
-  }, [items, status, normalizedQuery]);
+  }, [items, moduleId, origin, category, normalizedQuery]);
 
   const visible = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-    const categoryOk = categoryMatches(item, origin, category);
+    const categoryOk = categoryMatches(item, category);
     const statusOk = status === "all" || item.status === status;
-    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && statusOk && matchesQuery(item, normalizedQuery);
+    return includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && statusOk && matchesQuery(item, normalizedQuery);
   });
 
   const groups = [];
-  visible.forEach((item) => {
-    let group = groups.find((entry) => entry.moduleId === item.moduleId);
-    if (!group) {
-      group = {
-        moduleId: item.moduleId,
-        moduleName: item.moduleName,
-        moduleIcon: item.moduleIcon,
-        items: [],
-      };
-      groups.push(group);
+  if (origin === "DASHBOARD") {
+    if (visible.length > 0) {
+      groups.push({
+        moduleId: "flat",
+        moduleName: "",
+        moduleIcon: "",
+        flat: true,
+        items: [...visible].sort(byNewest),
+      });
     }
-    group.items.push(item);
-  });
+  } else {
+    visible.forEach((item) => {
+      let group = groups.find((entry) => entry.moduleId === item.moduleId);
+      if (!group) {
+        group = {
+          moduleId: item.moduleId,
+          moduleName: item.moduleName,
+          moduleIcon: item.moduleIcon,
+          items: [],
+        };
+        groups.push(group);
+      }
+      group.items.push(item);
+    });
+    groups.forEach((group) => group.items.sort(byNewest));
+    groups.sort((left, right) => byNewest(left.items[0], right.items[0]));
+  }
 
   const selectedModule = modules.find((module) => module.id === moduleId);
   const summary = moduleId === "all" && category === "all" && status === "all" && !normalizedQuery
-    ? (origin === "REVIEW" ? "Showing all feedback" : `Showing ${collection.label}`)
+    ? (origin === "DASHBOARD" ? "Showing all feedback" : origin === "REVIEW" ? "Showing IT feedback" : "Showing operations feedback")
     : `Showing ${category === "all" ? "all feedback" : categoryById(category).label}${
         status === "all" ? "" : `, ${STATUSES.find((entry) => entry.id === status).label.toLowerCase()}`
-      } in ${selectedModule ? selectedModule.name : "all modules"}`;
+      }${origin !== "DASHBOARD" && selectedModule ? ` in ${selectedModule.name}` : ""}`;
 
   async function changeStatus(item, nextStatus) {
     if (item.status === nextStatus) return;
@@ -255,14 +280,12 @@ function Dashboard({ user, onSignOut }) {
     }
   }
 
-  const typeLabel = selectedTopic
-    ? selectedTopic.label
-    : (category === "all" ? "All feedback" : categoryById(category).label);
+  const typeLabel = category === "all" ? "All feedback" : categoryById(category).label;
   const moduleLabel = selectedModule ? selectedModule.name : "All modules";
   const printable = items.filter((item) => {
     const moduleOk = moduleId === "all" || item.moduleId === moduleId;
-    const categoryOk = categoryMatches(item, origin, category);
-    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && topicMatches(item, origin, operationsTopic) && matchesQuery(item, normalizedQuery);
+    const categoryOk = categoryMatches(item, category);
+    return item.status === "IN_PROGRESS" && includesOrigin(origin, itemOrigin(item)) && moduleOk && categoryOk && matchesQuery(item, normalizedQuery);
   });
   const printableGroups = [];
   printable.forEach((item) => {
@@ -303,11 +326,11 @@ function Dashboard({ user, onSignOut }) {
       return;
     }
     setItems((current) => [...current, created.item]);
-    setOrigin(itemOrigin(created.item));
-    setOperationsTopic(created.item.operationsTopic || "all");
+    setOrigin(itemOrigin(created.item) === "OPERATIONS" ? "OPERATIONS" : "REVIEW");
     setModuleId(created.item.moduleId);
     setCategory(created.item.category);
     setStatus(created.item.status);
+    setManageView(null);
     setDialogOpen(false);
   }
 
@@ -329,26 +352,33 @@ function Dashboard({ user, onSignOut }) {
       <aside className="sidebar">
         <div className="brand">
           <h1>Smart V2 Review</h1>
-          <p>Browse feedback by module</p>
+          <p>IT and operations feedback</p>
         </div>
-        <p className="menu-label">Modules</p>
-        <nav className="menu" aria-label="Feedback modules">
+        <p className="menu-label">Views</p>
+        <nav className="menu" aria-label="Feedback views">
           <button
             type="button"
-            className={origin === "REVIEW" && moduleId === "all" ? "active" : ""}
-            onClick={() => { setOrigin("REVIEW"); setModuleId("all"); setOperationsTopic("all"); }}
+            className={origin === "DASHBOARD" && !manageView ? "active" : ""}
+            onClick={() => { setManageView(null); setOrigin("DASHBOARD"); setModuleId("all"); }}
           >
-            <span className="menu-name"><span>All modules</span></span>
-            <span className="count">{moduleCounts.all || 0}</span>
+            <span className="menu-name"><span>Dashboard</span></span>
+            <span className="count">{areaCounts.DASHBOARD || 0}</span>
           </button>
+        </nav>
+        <p className="menu-label">IT</p>
+        <nav className="menu" aria-label="IT modules">
           {modules.map((module) => (
-            <div className={`menu-row ${moduleId === module.id ? "active" : ""}`} key={module.id}>
-              <button type="button" className="menu-main" onClick={() => setModuleId(module.id)}>
+            <div className={`menu-row ${origin === "REVIEW" && moduleId === module.id && !manageView ? "active" : ""}`} key={module.id}>
+              <button
+                type="button"
+                className="menu-main"
+                onClick={() => { setManageView(null); setOrigin("REVIEW"); setModuleId(module.id); }}
+              >
                 <span className="menu-name">
                   <ModuleMark name={module.icon} />
                   <span>{module.name}</span>
                 </span>
-                <span className="count">{moduleCounts[module.id] || 0}</span>
+                <span className="count">{moduleCounts.REVIEW[module.id] || 0}</span>
               </button>
               <ModuleActions
                 name={module.name}
@@ -360,66 +390,73 @@ function Dashboard({ user, onSignOut }) {
             </div>
           ))}
         </nav>
-        <p className="menu-label">Records</p>
-        <nav className="menu" aria-label="Other records">
-          {ORIGINS.filter((entry) => entry.id !== "REVIEW").map((entry) => (
-            <div key={entry.id}>
+        <p className="menu-label">Operations</p>
+        <nav className="menu" aria-label="Operations modules">
+          {modules.map((module) => (
+            <div className={`menu-row ${origin === "OPERATIONS" && moduleId === module.id && !manageView ? "active" : ""}`} key={module.id}>
               <button
                 type="button"
-                className={origin === entry.id && operationsTopic === "all" ? "active" : ""}
-                onClick={() => { setOrigin(entry.id); setOperationsTopic("all"); setModuleId("all"); }}
+                className="menu-main"
+                onClick={() => { setManageView(null); setOrigin("OPERATIONS"); setModuleId(module.id); }}
               >
-                <span className="menu-name"><span>{entry.label}</span></span>
-                <span className="count">{collectionCounts[entry.id] || 0}</span>
+                <span className="menu-name">
+                  <ModuleMark name={module.icon} />
+                  <span>{module.name}</span>
+                </span>
+                <span className="count">{moduleCounts.OPERATIONS[module.id] || 0}</span>
               </button>
-              {entry.id === "OPERATIONS" && OPERATIONS_TOPICS.map((topic) => (
-                <button
-                  key={topic.id}
-                  type="button"
-                  className={`menu-sub ${origin === "OPERATIONS" && operationsTopic === topic.id ? "active" : ""}`}
-                  onClick={() => { setOrigin("OPERATIONS"); setOperationsTopic(topic.id); setModuleId("all"); }}
-                >
-                  <span className="menu-name"><span>{topic.label}</span></span>
-                  <span className="count">{topicCounts[topic.id] || 0}</span>
-                </button>
-              ))}
+              <ModuleActions
+                name={module.name}
+                canEdit={canCreateModule}
+                canDelete={canDelete}
+                onEdit={() => setEditingModule(module)}
+                onDelete={() => setPendingDelete({ kind: "module", module })}
+              />
             </div>
           ))}
         </nav>
-        <div className="account">
-          <strong>{user.fullName}</strong>
-          <span>{user.username}</span>
-          <span>{roleLabel(role)}</span>
-          {canManageUsers && (
-            <button type="button" className="ghost" onClick={() => setUserDialogOpen(true)}>Add user</button>
-          )}
-          {canManageUsers && (
-            <button type="button" className="ghost" onClick={() => setSecurityOpen(true)}>Security log</button>
-          )}
-          {canManageUsers && (
-            <button type="button" className="ghost" onClick={() => setNetworksOpen(true)}>Allowed networks</button>
-          )}
-          <button type="button" className="ghost" onClick={onSignOut}>Sign out</button>
-        </div>
-        {canRegister && (
-          <button type="button" className="side-action" onClick={() => setDialogOpen(true)}>
-            Register
+        {canManageUsers && (
+          <button type="button" className={`manage-action${manageView ? " active" : ""}`} onClick={() => setManageView("home")}>
+            <Settings size={18} aria-hidden="true" />
+            Manage
           </button>
         )}
       </aside>
 
       <main className="main">
         <header className="main-header">
-        <div>
-            <h2>{collection.title}</h2>
-            <p>{collection.description}</p>
+          <div>
+            <h2>{manageView === "users" ? "Users" : manageView ? "Manage" : collection.title}</h2>
+            <p>
+              {manageView === "users"
+                ? "Accounts that can sign in. Department decides whether their feedback appears under IT or Operations."
+                : manageView
+                  ? "Allowed networks, users, the security log, and sign out."
+                  : collection.description}
+            </p>
           </div>
-          {canRegister && (
-            <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
-              {canCreateModule ? collection.register : "Register feedback"}
-            </button>
-          )}
+          <div className="header-actions">
+            {canRegister && !manageView && (
+              <button type="button" className="primary" onClick={() => setDialogOpen(true)}>
+                Register feedback
+              </button>
+            )}
+            <ProfileMenu user={user} onProfile={() => setProfileOpen(true)} onSignOut={onSignOut} />
+          </div>
         </header>
+
+        {manageView ? (
+          <ManagePanel
+            view={manageView}
+            currentUsername={user.username}
+            onUsers={() => setManageView("users")}
+            onHome={() => setManageView("home")}
+            onNetworks={() => setNetworksOpen(true)}
+            onSecurity={() => setSecurityOpen(true)}
+            onSignOut={onSignOut}
+          />
+        ) : (
+        <>
 
         <section className="status-board" aria-label="Issue status">
           {STATUSES.map((entry) => (
@@ -444,7 +481,6 @@ function Dashboard({ user, onSignOut }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          {origin !== "OPERATIONS" && (
           <div className="filters" role="group" aria-label="Category filter">
             <button type="button" className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>
               All feedback
@@ -463,7 +499,6 @@ function Dashboard({ user, onSignOut }) {
               </button>
             ))}
           </div>
-          )}
         </div>
 
         <div className="result-bar">
@@ -489,10 +524,12 @@ function Dashboard({ user, onSignOut }) {
           const moduleRecord = modules.find((module) => module.id === group.moduleId);
           return (
           <section className="section-card" key={group.moduleId}>
+            {!group.flat && (
             <div className="section-heading">
               <h3><ModuleMark name={group.moduleIcon} /> {group.moduleName}</h3>
               {moduleRecord?.createdByName && <p className="module-creator">Created by {moduleRecord.createdByName}</p>}
             </div>
+            )}
             <div className="items">
               {group.items.map((item) => {
                 const categoryMeta = categoryById(item.category);
@@ -507,6 +544,9 @@ function Dashboard({ user, onSignOut }) {
                             {item.createdByName ? ` by ${item.createdByName}` : ""}
                           </span>
                         </span>
+                        {(origin === "DASHBOARD") && item.moduleName && (
+                          <span className="created">{item.moduleName}</span>
+                        )}
                         {item.updatedByName && <span className="created">Updated by {item.updatedByName}</span>}
                         {item.statusChangedByName && (
                           <span className="created">
@@ -520,11 +560,10 @@ function Dashboard({ user, onSignOut }) {
                             View Screenshot
                           </button>
                         )}
-                        {item.operationsTopic ? (
-                          <span className="tag inquiry">{operationsTopicById(item.operationsTopic)?.label || item.operationsTopic}</span>
-                        ) : (
-                          <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
+                        {origin === "DASHBOARD" && (
+                          <span className="tag inquiry">{itemOrigin(item) === "OPERATIONS" ? "Operations" : "IT"}</span>
                         )}
+                        <span className={`tag ${categoryMeta?.dot || ""}`}>{categoryMeta?.label}</span>
                       </span>
                     </div>
                     <p>
@@ -563,6 +602,8 @@ function Dashboard({ user, onSignOut }) {
         {!loading && visible.length === 0 && (
           <div className="empty">No feedback matches this view. Clear a filter or register a new item.</div>
         )}
+        </>
+        )}
 
         <footer>Smart-Remit V2 Engineering & Product Feedback Report</footer>
       </main>
@@ -571,15 +612,23 @@ function Dashboard({ user, onSignOut }) {
         <RegisterDialog
           modules={modules}
           initialModuleId={moduleId === "all" ? modules[0]?.id ?? "" : moduleId}
-          initialOrigin={origin}
-          initialTopic={operationsTopic === "all" ? "FEATURE" : operationsTopic}
+          department={department}
           allowModule={canCreateModule}
           allowStatus={canChangeStatus}
           onClose={() => setDialogOpen(false)}
           onCreated={handleCreated}
         />
       )}
-      {userDialogOpen && <AddUserDialog currentUsername={user.username} onClose={() => setUserDialogOpen(false)} />}
+      {profileOpen && (
+        <ProfileDialog
+          user={user}
+          onClose={() => setProfileOpen(false)}
+          onUpdated={(next) => {
+            onUserUpdated(next);
+            setProfileOpen(false);
+          }}
+        />
+      )}
       {securityOpen && <SecurityLogDialog onClose={() => setSecurityOpen(false)} />}
       {networksOpen && <AllowedNetworksDialog onClose={() => setNetworksOpen(false)} />}
       {editingModule && (
@@ -624,7 +673,8 @@ function Dashboard({ user, onSignOut }) {
 }
 
 function includesOrigin(selected, itemOriginKey) {
-  if (selected === "REVIEW") return itemOriginKey === "REVIEW" || itemOriginKey === "OPERATIONS";
+  if (selected === "DASHBOARD") return itemOriginKey === "REVIEW" || itemOriginKey === "OPERATIONS";
+  if (selected === "REVIEW") return itemOriginKey === "REVIEW";
   return itemOriginKey === selected;
 }
 
@@ -740,14 +790,14 @@ function ItemActions({ item, canEdit, canDelete, onEdit, onDelete }) {
   );
 }
 
-function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic = "FEATURE", allowModule = true, allowStatus = true, onClose, onCreated }) {
+function RegisterDialog({ modules, initialModuleId, department = "IT", allowModule = true, allowStatus = true, onClose, onCreated }) {
+  const recordOrigin = department === "OPERATIONS" ? "OPERATIONS" : "REVIEW";
   const [tab, setTab] = useState(allowModule && modules.length === 0 ? "module" : "feedback");
   const [moduleForm, setModuleForm] = useState(emptyModuleForm);
   const [feedbackForm, setFeedbackForm] = useState({
     ...emptyFeedbackForm,
     moduleId: initialModuleId === "" ? "" : String(initialModuleId),
-    origin: initialOrigin || "REVIEW",
-    operationsTopic: initialTopic,
+    origin: recordOrigin,
   });
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
@@ -798,10 +848,10 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic 
         moduleId: Number(feedbackForm.moduleId),
         title: feedbackForm.title.trim(),
         details: feedbackForm.details.trim(),
-        category: feedbackForm.origin === "OPERATIONS" ? "INQUIRY" : feedbackForm.category,
+        category: feedbackForm.category,
         status: allowStatus ? feedbackForm.status : "IN_PROGRESS",
-        origin: feedbackForm.origin,
-        operationsTopic: feedbackForm.origin === "OPERATIONS" ? feedbackForm.operationsTopic : null,
+        origin: recordOrigin,
+        operationsTopic: null,
         screenshots,
       });
       onCreated({ kind: "feedback", item });
@@ -815,7 +865,7 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic 
     <div className="overlay">
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="register-title">
         <h3 id="register-title">Register</h3>
-        <p>{allowModule ? "Add a module first, then record feedback against it and choose the feedback type." : "Record feedback against a module."}</p>
+        <p>{allowModule ? "Add a module first, then record feedback against it. The department on your account decides whether it is filed under IT or Operations." : "Record feedback against a module. Your department decides whether it is filed under IT or Operations."}</p>
         {allowModule && (
           <div className="tabs" role="tablist">
             <button type="button" className={tab === "module" ? "active" : ""} onClick={() => setTab("module")}>
@@ -881,37 +931,6 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic 
               </select>
             </div>
             <div className="field">
-              <label htmlFor="feedback-record">Record as</label>
-              <select
-                id="feedback-record"
-                value={feedbackForm.origin}
-                onChange={(event) => setFeedbackForm({
-                  ...feedbackForm,
-                  origin: event.target.value,
-                  operationsTopic: event.target.value === "OPERATIONS" ? (feedbackForm.operationsTopic || "FEATURE") : feedbackForm.operationsTopic,
-                })}
-              >
-                {ORIGINS.map((entry) => (
-                  <option key={entry.id} value={entry.id}>{entry.label}</option>
-                ))}
-              </select>
-            </div>
-            {feedbackForm.origin === "OPERATIONS" ? (
-              <div className="field">
-                <label htmlFor="feedback-topic">Operations topic</label>
-                <select
-                  id="feedback-topic"
-                  required
-                  value={feedbackForm.operationsTopic}
-                  onChange={(event) => setFeedbackForm({ ...feedbackForm, operationsTopic: event.target.value })}
-                >
-                  {OPERATIONS_TOPICS.map((entry) => (
-                    <option key={entry.id} value={entry.id}>{entry.label}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-            <div className="field">
               <label htmlFor="feedback-type">Feedback type</label>
               <select
                 id="feedback-type"
@@ -924,7 +943,6 @@ function RegisterDialog({ modules, initialModuleId, initialOrigin, initialTopic 
                 ))}
               </select>
             </div>
-            )}
             <div className="field">
               <label htmlFor="feedback-title">Title</label>
               <input
@@ -1084,7 +1102,11 @@ export default function App() {
       />
     );
   }
-  return <Dashboard user={session.user} onSignOut={signOut} />;
+  return <Dashboard user={session.user} onSignOut={signOut} onUserUpdated={(nextUser) => {
+    const next = { token: session.token, user: nextUser };
+    writeSession(next);
+    setSession(next);
+  }} />;
 }
 
 function AccessDenied({ ip }) {
@@ -1626,7 +1648,6 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     moduleId: String(item.moduleId),
     origin: itemOrigin(item),
     category: item.category,
-    operationsTopic: item.operationsTopic || "FEATURE",
     title: item.title,
     details: item.details,
     status: item.status,
@@ -1653,8 +1674,8 @@ function EditDialog({ item, modules, onClose, onSaved }) {
       const updated = await updateFeedback(item.id, {
         moduleId: Number(form.moduleId),
         origin: form.origin,
-        operationsTopic: form.origin === "OPERATIONS" ? form.operationsTopic : null,
-        category: form.origin === "OPERATIONS" ? "INQUIRY" : form.category,
+        operationsTopic: null,
+        category: form.category,
         title: form.title.trim(),
         details: form.details.trim(),
         status: form.status,
@@ -1672,14 +1693,9 @@ function EditDialog({ item, modules, onClose, onSaved }) {
     <div className="overlay">
       <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-title" onSubmit={submit}>
         <h3 id="edit-title">Edit feedback</h3>
-        <p>Update the record. The original author stays as the person who created it.</p>
+        <p>Update the record. It stays in the department that reported it. The original author stays as the person who created it.</p>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="field">
-          <label htmlFor="edit-record">Record as</label>
-          <select id="edit-record" value={form.origin} onChange={(event) => setForm({ ...form, origin: event.target.value })}>
-            {ORIGINS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-          </select>
-        </div>
+        <p className="form-note">{form.origin === "OPERATIONS" ? "Reported by Operations" : "Reported by IT"}</p>
         <div className="field">
           <label htmlFor="edit-module">Module</label>
           <select id="edit-module" required value={form.moduleId} onChange={(event) => setForm({ ...form, moduleId: event.target.value })}>
@@ -1687,21 +1703,10 @@ function EditDialog({ item, modules, onClose, onSaved }) {
           </select>
         </div>
         <div className="field">
-          {form.origin === "OPERATIONS" ? (
-            <>
-              <label htmlFor="edit-topic">Operations topic</label>
-              <select id="edit-topic" required value={form.operationsTopic} onChange={(event) => setForm({ ...form, operationsTopic: event.target.value })}>
-                {OPERATIONS_TOPICS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-              </select>
-            </>
-          ) : (
-            <>
-              <label htmlFor="edit-type">Feedback type</label>
-              <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
-                {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-              </select>
-            </>
-          )}
+          <label htmlFor="edit-type">Feedback type</label>
+          <select id="edit-type" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+            {CATEGORIES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
         </div>
         <div className="field">
           <label htmlFor="edit-title">Title</label>
@@ -1734,45 +1739,69 @@ function EditDialog({ item, modules, onClose, onSaved }) {
   );
 }
 
-function AddUserDialog({ currentUsername, onClose }) {
-  const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER" });
-  const [users, setUsers] = useState([]);
-  const [pendingUser, setPendingUser] = useState(null);
-  const [deviceUser, setDeviceUser] = useState(null);
+function ProfileMenu({ user, onProfile, onSignOut }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointer(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="profile-menu" ref={rootRef}>
+      <button type="button" className="avatar-button" aria-label={`Profile for ${user.fullName}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        {initials(user.fullName)}
+      </button>
+      {open && (
+        <div className="profile-popover">
+          <strong>{user.fullName}</strong>
+          <span>{user.username}</span>
+          <span>{roleLabel(user.role)} · {departmentLabel(user.department)}</span>
+          <button type="button" onClick={() => { setOpen(false); onProfile(); }}>Manage profile</button>
+          <button type="button" onClick={onSignOut}>Sign out</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileDialog({ user, onClose, onUpdated }) {
+  const [fullName, setFullName] = useState(user.fullName || "");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (pendingUser || deviceUser) return undefined;
     function onKey(event) {
       if (event.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, pendingUser, deviceUser]);
-
-  useEffect(() => {
-    fetchUsers()
-      .then(setUsers)
-      .catch((loadError) => setError(loadError.message));
-  }, []);
+  }, [onClose]);
 
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setError("");
-    setNotice("");
     try {
-      await createUser({
-        fullName: form.fullName.trim(),
-        username: form.username.trim(),
-        role: form.role,
-      });
-      setUsers(await fetchUsers());
-      setNotice("The account is ready. The first PIN is 123456. They must choose a new PIN when they sign in.");
-      setForm({ fullName: "", username: "", role: "REPORTER" });
-      setSaving(false);
+      let next = await updateProfile(fullName.trim());
+      if (newPin || confirmPin) {
+        next = await changePin(newPin, confirmPin);
+      }
+      onUpdated(next);
     } catch (saveError) {
       setError(saveError.message);
       setSaving(false);
@@ -1781,63 +1810,159 @@ function AddUserDialog({ currentUsername, onClose }) {
 
   return (
     <div className="overlay">
-      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="user-title" onSubmit={submit}>
-        <h3 id="user-title">Add user</h3>
-        <p>Create an account. Admin can register and edit. Developer can change status only. Reporter can register feedback only.</p>
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title" onSubmit={submit}>
+        <h3 id="profile-title">Your profile</h3>
+        <p>Update your name. Role and department are set by the account manager.</p>
         {error && <p className="form-error" role="alert">{error}</p>}
-        {notice && <p className="form-note" role="status">{notice}</p>}
         <div className="field">
-          <label htmlFor="user-full-name">Full name</label>
-          <input
-            id="user-full-name"
-            required
-            maxLength={120}
-            value={form.fullName}
-            onChange={(event) => setForm({ ...form, fullName: event.target.value })}
-          />
+          <label htmlFor="profile-name">Full name</label>
+          <input id="profile-name" required maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} />
         </div>
         <div className="field">
-          <label htmlFor="user-username">Username</label>
-          <input
-            id="user-username"
-            required
-            maxLength={40}
-            autoComplete="off"
-            value={form.username}
-            onChange={(event) => setForm({ ...form, username: event.target.value })}
-          />
-          <p className="field-hint">Letters and numbers only.</p>
+          <label htmlFor="profile-username">Username</label>
+          <input id="profile-username" value={user.username} readOnly />
         </div>
         <div className="field">
-          <label htmlFor="user-role">Role</label>
-          <select id="user-role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
-            {ROLES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-          </select>
+          <label htmlFor="profile-role">Role</label>
+          <input id="profile-role" value={roleLabel(user.role)} readOnly />
+        </div>
+        <div className="field">
+          <label htmlFor="profile-department">Department</label>
+          <input id="profile-department" value={departmentLabel(user.department)} readOnly />
+        </div>
+        <div className="field">
+          <label htmlFor="profile-pin">New PIN</label>
+          <input id="profile-pin" type="password" inputMode="numeric" autoComplete="new-password" value={newPin} onChange={(event) => setNewPin(event.target.value)} placeholder="Leave blank to keep the current PIN" />
+        </div>
+        <div className="field">
+          <label htmlFor="profile-pin-confirm">Confirm new PIN</label>
+          <input id="profile-pin-confirm" type="password" inputMode="numeric" autoComplete="new-password" value={confirmPin} onChange={(event) => setConfirmPin(event.target.value)} />
         </div>
         <div className="dialog-actions">
-          <button type="button" className="ghost" onClick={onClose}>Close</button>
-          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Create user"}</button>
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save profile"}</button>
         </div>
-        {users.length > 0 && (
-          <div className="user-list">
-            <p className="field-hint">Accounts. Deleting a user asks for your PIN.</p>
-            {users.map((account) => (
-              <div className="user-row" key={account.id}>
-                <span>
-                  <strong>{account.fullName}</strong>
-                  <span>{account.username} · {roleLabel(account.role)}</span>
-                </span>
-                <span className="user-actions">
-                  <button type="button" className="ghost" onClick={() => setDeviceUser(account)}>Device</button>
-                  {account.username !== "bulxan" && (
-                    <button type="button" className="danger" onClick={() => setPendingUser(account)}>Delete</button>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </form>
+    </div>
+  );
+}
+
+function ManagePanel({ view, currentUsername, onUsers, onHome, onNetworks, onSecurity, onSignOut }) {
+  if (view === "users") {
+    return <UsersPage currentUsername={currentUsername} onBack={onHome} />;
+  }
+  return (
+    <section className="manage-screen" aria-label="Manage">
+      <div className="manage-grid">
+        <button type="button" onClick={onNetworks}>Allowed networks</button>
+        <button type="button" onClick={onUsers}>Users</button>
+        <button type="button" onClick={onSecurity}>Security log</button>
+        <button type="button" className="manage-signout" onClick={onSignOut}>Sign out</button>
+      </div>
+    </section>
+  );
+}
+
+function UserActions({ name, canDelete, onEdit, onDevice, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointer(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function choose(action) {
+    setOpen(false);
+    action();
+  }
+
+  return (
+    <div className={`item-menu${open ? " open" : ""}`} ref={rootRef}>
+      <button type="button" className="item-menu-button" aria-label={`Actions for ${name}`} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <span className="dots" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="item-menu-list" role="menu">
+          <button type="button" role="menuitem" onClick={() => choose(onEdit)}>Edit</button>
+          <button type="button" role="menuitem" onClick={() => choose(onDevice)}>Registered device</button>
+          {canDelete && (
+            <button type="button" role="menuitem" className="menu-danger" onClick={() => choose(onDelete)}>Delete</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsersPage({ currentUsername, onBack }) {
+  const [users, setUsers] = useState([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [deviceUser, setDeviceUser] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchUsers()
+      .then(setUsers)
+      .catch((loadError) => setError(loadError.message));
+  }, []);
+
+  return (
+    <section className="manage-screen">
+      <div className="page-toolbar">
+        <button type="button" className="ghost" onClick={onBack}>Back</button>
+        <button type="button" className="primary" onClick={() => setAddOpen(true)}>Add user</button>
+      </div>
+      {error && <div className="banner" role="alert">{error}</div>}
+      <div className="user-list page-list">
+        {users.map((account) => (
+          <div className="user-row" key={account.id}>
+            <span>
+              <strong>{account.fullName}</strong>
+              <span>{account.username} · {roleLabel(account.role)} · {departmentLabel(account.department)}</span>
+            </span>
+            <UserActions
+              name={account.fullName}
+              canDelete={account.username !== "bulxan"}
+              onEdit={() => setEditingUser(account)}
+              onDevice={() => setDeviceUser(account)}
+              onDelete={() => setPendingUser(account)}
+            />
+          </div>
+        ))}
+      </div>
+      {addOpen && (
+        <AddUserDialog
+          onClose={() => setAddOpen(false)}
+          onCreated={async () => {
+            setUsers(await fetchUsers());
+            setAddOpen(false);
+          }}
+        />
+      )}
+      {editingUser && (
+        <EditUserDialog
+          account={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSaved={(updated) => {
+            setUsers((current) => current.map((account) => (account.id === updated.id ? updated : account)));
+            setEditingUser(null);
+          }}
+        />
+      )}
       {pendingUser && (
         <PinConfirmDialog
           title={`Delete ${pendingUser.fullName}`}
@@ -1856,6 +1981,144 @@ function AddUserDialog({ currentUsername, onClose }) {
           onClose={() => setDeviceUser(null)}
         />
       )}
+    </section>
+  );
+}
+
+function AddUserDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState({ fullName: "", username: "", role: "REPORTER", department: "" });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.department) {
+      setError("Choose a department.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await createUser({
+        fullName: form.fullName.trim(),
+        username: form.username.trim(),
+        role: form.role,
+        department: form.department,
+      });
+      await onCreated();
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="user-title" onSubmit={submit}>
+        <h3 id="user-title">Add user</h3>
+        <p>Create an account. Role and department are required. The first PIN is 123456, and they must choose a new PIN when they sign in.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="user-full-name">Full name</label>
+          <input id="user-full-name" required maxLength={120} value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
+        </div>
+        <div className="field">
+          <label htmlFor="user-username">Username</label>
+          <input id="user-username" required maxLength={40} autoComplete="off" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
+          <p className="field-hint">Letters and numbers only.</p>
+        </div>
+        <div className="field">
+          <label htmlFor="user-role">Role</label>
+          <select id="user-role" required value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+            {ROLES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="user-department">Department</label>
+          <select id="user-department" required value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}>
+            <option value="">Select a department</option>
+            {DEPARTMENTS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Create user"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditUserDialog({ account, onClose, onSaved }) {
+  const locked = account.username === "bulxan";
+  const [form, setForm] = useState({
+    fullName: account.fullName || "",
+    role: account.role || "REPORTER",
+    department: account.department || "IT",
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await updateUser(account.id, {
+        fullName: form.fullName.trim(),
+        role: locked ? "ADMIN" : form.role,
+        department: form.department,
+      });
+      onSaved(updated);
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="overlay">
+      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-user-title" onSubmit={submit}>
+        <h3 id="edit-user-title">Edit {account.fullName}</h3>
+        <p>Username stays the same. Role and department decide what this person can do and where their feedback is filed.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="field">
+          <label htmlFor="edit-user-name">Full name</label>
+          <input id="edit-user-name" required maxLength={120} value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
+        </div>
+        <div className="field">
+          <label htmlFor="edit-user-role">Role</label>
+          <select id="edit-user-role" required value={locked ? "ADMIN" : form.role} disabled={locked} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+            {ROLES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="edit-user-department">Department</label>
+          <select id="edit-user-department" required value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}>
+            {DEPARTMENTS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost" onClick={onClose}>Cancel</button>
+          <button type="submit" className="primary" disabled={saving}>{saving ? "Saving…" : "Save user"}</button>
+        </div>
+      </form>
     </div>
   );
 }
